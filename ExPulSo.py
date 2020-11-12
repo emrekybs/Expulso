@@ -17,8 +17,8 @@ logo = '''
                  ExPulSo for Information Gathering
 
                     Author By Emre Koybasi 
-            Website: http://www.emrekybs.com 
-        Contact me emrekoybasi98@gmail.com                                
+            Github: https://github.com/emrekybs 
+          Instagram: https://www.instagram.com/emrekybs98/                             
      '''
 menu = '''\033[0m
      (1) Whois
