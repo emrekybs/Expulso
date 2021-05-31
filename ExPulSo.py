@@ -18,7 +18,6 @@ logo = '''
 
                     Author By Emre Koybasi 
             Github: https://github.com/emrekybs 
-          Instagram: https://www.instagram.com/emrekybs98/                             
      '''
 menu = '''\033[0m
      (1) Whois
@@ -61,7 +60,7 @@ def  select():
     elif choice == 0:
 	  os.system("clear")
 	  print("This tool is only available for Linux and similar systems  ")
-	  os.system("git clone https://github.com/Manisso/Crips.git")
+	  os.system("https://github.com/emrekybs/Expulso.git")
 	  os.system("cd Expulso && sudo bash ./update.sh")
 	  os.system("ExPulso")
     elif choice == 2:
