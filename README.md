@@ -1,7 +1,5 @@
 [![EmreKybs](https://img.shields.io/badge/MadeBy-EmreKybs-green)
-# Expulso
-
-Information Gathering Tool
+# Expulso Information Gathering Tool
 
 The script uses the command-line utility curl to interact with the HackerTarget API for most of its features, providing results directly in the console. 
 It also offers a clear and concise output display, making it easy to interpret the results. 
