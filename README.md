@@ -1,4 +1,4 @@
-[![EmreKybs](https://img.shields.io/badge/MadeBy-Angelus-green)
+[![EmreKybs](https://img.shields.io/badge/MadeBy-Emrekybs-green)
 # Expulso Information Gathering Tool
 
 The script uses the command-line utility curl to interact with the HackerTarget API for most of its features, providing results directly in the console. 
@@ -8,7 +8,7 @@ The user is prompted to enter the target IP address or domain for each selected 
 This tool is particularly useful for cybersecurity professionals, network administrators, and anyone interested in conducting preliminary security assessments or gaining insights into network infrastructure. It's straightforward and practical for a range of tasks from basic reconnaissance to more detailed network analysis.
 <img src="https://github.com/emrekybs/Expulso/blob/master/expulso.png">
 
-* git clone https://github.com/angelus1857/Expulso.git
+* git clone https://github.com/emrekybs/BlueFish.git
 
 
 * python ExPuLso.py
