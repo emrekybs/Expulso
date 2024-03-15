@@ -11,8 +11,8 @@ logo = \
                                            
                           \033[0m  \033[92m    \033[1m 
                  ExPulSo for Information Gathering
-                    Author By BloodBane 
-            Github: https://github.com/bloodbane0 
+                    Author By Emrekybs (BloodBane) 
+            Github: https://github.com/emrekybs 
      '''
 menu = \
     '''\033[0m
