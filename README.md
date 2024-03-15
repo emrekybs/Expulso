@@ -13,4 +13,4 @@ This tool is particularly useful for cybersecurity professionals, network admini
 
 * python ExPuLso.py
 
-<img src="https://github.com/bloodbane0/Expulso/blob/master/1.png">
+<img src="https://github.com/emrekybs/Expulso/blob/master/my.png">
