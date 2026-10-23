@@ -153,6 +153,15 @@ class Batch:
                 return path
             self.log("  ! Depoda simge bulunamadı (%s); başka simge kullanılacak.\n" % value[5:])
             value, low = "otomatik", "otomatik"
+        if low.startswith("pipx:") and tool:
+            pkg = tool["source"].get("package", "")
+            pattern = os.path.join(core.sys_path(core.PIPX_HOME), "venvs", pkg, "lib",
+                                   "python*", "site-packages", value[5:].strip())
+            found = sorted(glob.glob(pattern))
+            if found:
+                return found[0]
+            self.log("  ! Paket içinde simge bulunamadı (%s)\n" % value[5:])
+            value, low = "otomatik", "otomatik"
         if low in ("", "otomatik", "auto"):
             if tool_dir:
                 best = core.best_repo_icon(core.sys_path(tool_dir))
@@ -288,6 +297,10 @@ class Batch:
         elif kind == "pipx":
             res = core.install_pipx(value, self.log, commands=[command])
             src.update({"url": value, "package": res["package"]})
+            if build:
+                self.log("\n>>> Ek kurulum adımı: %s\n" % build)
+                if core.run_cmd(["bash", "-c", build], self.log, env=core.pipx_env()) != 0:
+                    deps_ok = False
             if res["apps"] and command not in res["apps"]:
                 self.log("  > pipx paketinin komutu: %s\n" % ", ".join(res["apps"]))
                 command = res["apps"][0]
