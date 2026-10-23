@@ -404,13 +404,17 @@ def build_menu_xml(state):
     ] + out + ["</Menu>", ""])
 
 
-RUNNER_SCRIPT = """#!/usr/bin/env bash
+RUNNER_SCRIPT = r"""#!/usr/bin/env bash
 %s
 # Menüden açılan aracı çalıştırır, ardından terminali açık bırakır.
 # --ac <adres>: web arayüzlü araçlarda sunucu başlarken tarayıcıyı da açar.
 if [ "${1:-}" = "--ac" ] && [ -n "${2:-}" ]; then
     url="$2"
     shift 2
+    if curl -s -o /dev/null --max-time 1 "$url"; then
+        printf '\033[1;33m[!]\033[0m %%s adresinde zaten çalışan bir şey var (başka bir web\n' "$url"
+        printf '    aracı açık olabilir). Önce onu kapatın; bu araç aynı portu kullanıyor.\n\n'
+    fi
     ( for _ in $(seq 1 60); do
           if curl -s -o /dev/null --max-time 1 "$url"; then break; fi
           sleep 1
@@ -420,10 +424,10 @@ if [ "${1:-}" = "--ac" ] && [ -n "${2:-}" ]; then
     printf '\033[1;34m[i]\033[0m Kapatmak için bu pencerede Ctrl+C\n\n'
 fi
 if [ "$#" -gt 0 ]; then
-    printf '\\033[1;32m$ %%s\\033[0m\\n\\n' "$*"
+    printf '\033[1;32m$ %%s\033[0m\n\n' "$*"
     "$@"
     echo
-    printf '\\033[1;34m[i]\\033[0m Aracı tekrar çalıştırmak için: \\033[1m%%s <parametreler>\\033[0m\\n\\n' "$1"
+    printf '\033[1;34m[i]\033[0m Aracı tekrar çalıştırmak için: \033[1m%%s <parametreler>\033[0m\n\n' "$1"
 fi
 exec "${SHELL:-/bin/bash}" -i
 """ % MARKER
@@ -993,6 +997,10 @@ def run_cmd(argv, log, cwd=None, env=None):
     full_env.setdefault("DEBIAN_FRONTEND", "noninteractive")
     full_env["GIT_TERMINAL_PROMPT"] = "0"
     full_env["PYTHONUNBUFFERED"] = "1"
+    # root'un ~/.local paketleri sanal ortamlara sızmasın; araçlar normal
+    # kullanıcıyla çalıştığında o paketleri göremez.
+    full_env["PYTHONNOUSERSITE"] = "1"
+    full_env.setdefault("PIP_DISABLE_PIP_VERSION_CHECK", "1")
     try:
         p = subprocess.Popen(argv, cwd=cwd, env=full_env, stdout=subprocess.PIPE,
                              stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
