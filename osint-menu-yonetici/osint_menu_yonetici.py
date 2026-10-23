@@ -6,6 +6,8 @@ Kullanım:
   osint-menu-yonetici              Grafik arayüzü açar
   osint-menu-yonetici --uygula     Menü ve komut dosyalarını kayıttan yeniden üretir
   osint-menu-yonetici --liste      Eklenen kategori ve araçları listeler
+  osint-menu-yonetici --toplu <dosya.ini>
+                                   Listedeki bütün araç ve kategorileri otomatik kurar
   osint-menu-yonetici --temizle    Yapılan bütün menü değişikliklerini geri alır
   osint-menu-yonetici --yardim     Bu yardımı gösterir
 """
@@ -69,6 +71,16 @@ def main(argv):
             return cli_list()
         if args and args[0] in ("--uygula", "--apply"):
             return cli_apply()
+        if args and args[0] in ("--toplu", "--batch"):
+            if len(args) < 2:
+                print("Kullanım: sudo osint-menu-yonetici --toplu araclar.ini", file=sys.stderr)
+                return 2
+            if os.geteuid() != 0 and "OMY_ROOT" not in os.environ:
+                print("Bu işlem için root yetkisi gerekli: sudo osint-menu-yonetici --toplu %s"
+                      % args[1], file=sys.stderr)
+                return 1
+            from omy import toplu
+            return toplu.Batch().run(args[1])
         if args and args[0] in ("--temizle", "--clean"):
             if os.geteuid() != 0 and "OMY_ROOT" not in os.environ:
                 print("Bu işlem için root yetkisi gerekli.", file=sys.stderr)

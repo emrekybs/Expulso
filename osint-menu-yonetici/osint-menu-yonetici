@@ -15,6 +15,12 @@ case "${1:-}" in
     -h|--help|--yardim|--yardım|-v|--version|--surum|--sürüm|--liste|--list) needs_root=0 ;;
 esac
 
+# Toplu kurulumda liste dosyasının yolunu mutlak yap (yetki yükseltilirken
+# çalışma klasörü değişebilir)
+if [ "${1:-}" = "--toplu" ] && [ -n "${2:-}" ] && [ -e "$2" ]; then
+    set -- "$1" "$(readlink -f "$2")" "${@:3}"
+fi
+
 if [ "$(id -u)" -eq 0 ] || [ "$needs_root" -eq 0 ]; then
     exec /usr/bin/python3 "$MAIN" "$@"
 fi
