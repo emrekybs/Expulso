@@ -70,7 +70,7 @@ CATEGORY_PRESETS = [
     ("Raporlama", "osint-rapor", "Raporlama ve not alma araçları"),
 ]
 
-SOURCE_TYPES = ("git", "local", "pipx", "apt", "existing")
+SOURCE_TYPES = ("git", "local", "pipx", "apt", "existing", "web")
 SOURCES_WITH_WRAPPER = ("git", "local")
 
 RUNNERS = {
@@ -315,7 +315,10 @@ def split_args(args):
 
 def tool_exec(tool):
     argv = [tool["command"]] + split_args(tool.get("args", ""))
-    if tool.get("terminal", True):
+    if tool.get("open_url"):
+        # Web arayüzlü araç: sunucuyu terminalde başlat, tarayıcıda aç
+        argv = [RUNNER, "--ac", tool["open_url"]] + argv
+    elif tool.get("terminal", True):
         argv = [RUNNER] + argv
     return " ".join(exec_quote(a) for a in argv)
 
@@ -333,7 +336,8 @@ def desktop_content(tool):
     lines += [
         "Exec=%s" % kf_escape(tool_exec(tool)),
         "Icon=%s" % kf_escape(tool.get("icon") or "utilities-terminal"),
-        "Terminal=%s" % ("true" if tool.get("terminal", True) else "false"),
+        "Terminal=%s" % ("true" if tool.get("terminal", True) or tool.get("open_url")
+                         else "false"),
         "Categories=%s;" % TOOL_CATEGORY,
         "StartupNotify=false",
         "X-OMY-Id=%s" % tool["id"],
@@ -403,6 +407,18 @@ def build_menu_xml(state):
 RUNNER_SCRIPT = """#!/usr/bin/env bash
 %s
 # Menüden açılan aracı çalıştırır, ardından terminali açık bırakır.
+# --ac <adres>: web arayüzlü araçlarda sunucu başlarken tarayıcıyı da açar.
+if [ "${1:-}" = "--ac" ] && [ -n "${2:-}" ]; then
+    url="$2"
+    shift 2
+    ( for _ in $(seq 1 60); do
+          if curl -s -o /dev/null --max-time 1 "$url"; then break; fi
+          sleep 1
+      done
+      xdg-open "$url" >/dev/null 2>&1 ) &
+    printf '\033[1;34m[i]\033[0m Sunucu hazır olunca tarayıcıda açılacak: %%s\n' "$url"
+    printf '\033[1;34m[i]\033[0m Kapatmak için bu pencerede Ctrl+C\n\n'
+fi
 if [ "$#" -gt 0 ]; then
     printf '\\033[1;32m$ %%s\\033[0m\\n\\n' "$*"
     "$@"
@@ -1139,7 +1155,20 @@ def find_entry_candidates(real_dir, names=()):
     return [(entry, label) for _s, entry, label in scored]
 
 
-def install_git(url, tool_id, command, log):
+def run_build(real_dir, build, log):
+    """Araca özel kurulum/derleme komutunu aracın klasöründe çalıştırır."""
+    if not build:
+        return True
+    log("\n>>> Ek kurulum adımı: %s\n" % build)
+    venv_bin = os.path.join(real_dir, ".venv", "bin")
+    path = os.environ.get("PATH", "")
+    if os.path.isdir(venv_bin):
+        path = venv_bin + ":" + path
+    return run_cmd(["bash", "-c", build], log, cwd=real_dir,
+                   env={"PATH": path + ":/root/.cargo/bin:/usr/local/go/bin"}) == 0
+
+
+def install_git(url, tool_id, command, log, build=None):
     """Git deposunu /opt/osint-tools altına indirir ve bağımlılıkları kurar."""
     if not shutil.which("git"):
         raise OmyError("git yüklü değil (sudo apt install git).")
@@ -1157,6 +1186,7 @@ def install_git(url, tool_id, command, log):
         raise OmyError("Depo indirilemedi. Adresi ve internet bağlantısını kontrol edin.")
     ok = install_python_deps(real, log)
     ok = install_other_deps(real, command, log) and ok
+    ok = run_build(real, build, log) and ok
     _make_world_writable(real)
     return {"dir": tdir, "deps_ok": ok}
 
@@ -1231,15 +1261,64 @@ def install_pipx(spec, log):
 
 
 def install_apt(package, log):
-    package = package.strip()
-    if not re.match(r"^[a-z0-9][a-z0-9.+-]*$", package):
-        raise OmyError("Geçersiz paket adı: %s" % package)
-    if run_cmd(["apt-get", "install", "-y", package], log) != 0:
+    packages = package.split()
+    for p in packages:
+        if not re.match(r"^[a-z0-9][a-z0-9.+-]*$", p):
+            raise OmyError("Geçersiz paket adı: %s" % p)
+    missing = [p for p in packages if not apt_installed(p)]
+    if not missing:
+        log("Paket(ler) zaten kurulu: %s\n" % " ".join(packages))
+        return {"package": package}
+    argv = ["apt-get", "install", "-y", "--no-install-recommends"] + missing
+    if run_cmd(argv, log) != 0:
         log("\n>>> Paket listesi güncelleniyor ve tekrar deneniyor\n")
         run_cmd(["apt-get", "update"], log)
-        if run_cmd(["apt-get", "install", "-y", package], log) != 0:
-            raise OmyError("APT kurulumu başarısız oldu; ayrıntılar günlükte.")
+        if run_cmd(argv, log) != 0:
+            raise OmyError("APT kurulumu başarısız oldu (%s); ayrıntılar günlükte."
+                           % " ".join(missing))
     return {"package": package}
+
+
+def apt_installed(package):
+    try:
+        out = subprocess.run(["dpkg-query", "-W", "-f=${Status}", package],
+                             capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "install ok installed" in out
+
+
+# --------------------------------------------------------------------------
+# Baş harfli rozet simgeleri
+
+def badge_text(name):
+    words = re.findall(r"[A-Za-z0-9]+", name.translate(_TR))
+    if not words:
+        return "?"
+    if len(words) == 1:
+        w = words[0]
+        caps = [c for c in w[1:] if c.isupper()]
+        return (w[0] + caps[0]).upper() if caps else w[:2].capitalize()
+    return (words[0][0] + words[1][0]).upper()
+
+
+def make_badge(name, color, dest_id):
+    """Rengi ve baş harfleri verilen yuvarlak bir SVG simge üretir; menü
+    dosyalarına yazılacak yolu döndürür."""
+    text = xml_escape(badge_text(name))
+    size = 26 if len(text) <= 2 else 20
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">'
+           '<circle cx="32" cy="32" r="30" fill="%s"/>'
+           '<circle cx="32" cy="32" r="30" fill="url(#g)" opacity="0.25"/>'
+           '<defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'
+           '<stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#000"/>'
+           '</linearGradient></defs>'
+           '<text x="32" y="%d" font-size="%d" fill="#fff" text-anchor="middle" '
+           'font-family="DejaVu Sans, Liberation Sans, Arial, sans-serif" '
+           'font-weight="bold">%s</text></svg>\n') % (xml_escape(color), 32 + size * 0.36, size, text)
+    path = os.path.join(ICON_DIR, "%s.svg" % dest_id)
+    _write_file(sys_path(path), svg)
+    return path
 
 
 def update_tool(tool, log):
@@ -1253,6 +1332,7 @@ def update_tool(tool, log):
             raise OmyError("git pull başarısız oldu.")
         install_python_deps(real, log)
         install_other_deps(real, tool["command"], log)
+        run_build(real, src.get("build"), log)
         _make_world_writable(real)
     elif t == "local":
         real = sys_path(src["dir"])

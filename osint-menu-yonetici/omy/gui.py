@@ -52,7 +52,7 @@ SOURCE_PLACEHOLDERS = {
 }
 
 SOURCE_SHORT = {"git": "GitHub", "local": "Yerel", "pipx": "pipx", "apt": "APT",
-                "existing": "Kurulu komut"}
+                "existing": "Kurulu komut", "web": "Web kısayolu"}
 
 
 def make_gicon(icon, fallback="application-x-executable"):
@@ -1357,7 +1357,8 @@ class MainWindow(Gtk.Window):
         self.btn_edit.set_sensitive(kind in ("tool", "cat", "menu", "sys", "fav"))
         self.btn_del.set_sensitive(kind in ("tool", "cat"))
         tool = core.find_tool(self.state, row[C_IDENT]) if kind == "tool" else None
-        self.btn_update.set_sensitive(bool(tool) and tool["source"]["type"] != "existing")
+        self.btn_update.set_sensitive(bool(tool) and
+                                      tool["source"]["type"] not in ("existing", "web"))
         self.btn_test.set_sensitive(kind in ("tool", "sys", "fav"))
 
     # -------------------------------------------------------------- olaylar
@@ -1414,7 +1415,8 @@ class MainWindow(Gtk.Window):
              self.on_edit, kind in ("tool", "cat", "menu", "sys", "fav"))
         item("Sil", self.on_delete, kind in ("tool", "cat"))
         tool = core.find_tool(self.state, row[C_IDENT]) if kind == "tool" else None
-        item("Güncelle", self.on_update, bool(tool) and tool["source"]["type"] != "existing")
+        item("Güncelle", self.on_update,
+             bool(tool) and tool["source"]["type"] not in ("existing", "web"))
         item("Dene (çalıştır)", self.on_test, kind in ("tool", "sys", "fav"))
         if tool and tool["source"].get("dir"):
             item("Klasörü aç", lambda: self._open_folder(tool["source"]["dir"]))
