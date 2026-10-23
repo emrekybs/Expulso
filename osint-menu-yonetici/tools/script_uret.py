@@ -57,7 +57,9 @@ done
 
 LOG=/var/log/osint-kur.log
 mkdir -p /var/log
-exec > >(tee -a "$LOG") 2>&1
+if [ -n "${OSINT_KUR_ARKAPLAN:-}" ]; then
+    exec >>"$LOG" 2>&1
+fi
 
 G='\033[1;32m'; Y='\033[1;33m'; B='\033[1;34m'; RD='\033[1;31m'; N='\033[0m'
 adim() { printf "\n${B}==> %s${N}\n" "$*"; }
@@ -94,6 +96,22 @@ if [ "$EVET" != 1 ]; then
     case "$cevap" in e|E|evet|EVET|y|Y) ;; *) echo "İptal edildi."; exit 1 ;; esac
 fi
 
+# Masaüstü oturumu güncelleme sırasında çökse bile kurulum yarıda kalmasın:
+# betik terminalden bağımsız (arka planda) çalışır, bu pencere sadece günlüğü gösterir.
+if [ -z "${OSINT_KUR_ARKAPLAN:-}" ]; then
+    : >"$LOG.ilerleme"
+    OSINT_KUR_ARKAPLAN=1 setsid nohup bash "$0" --evet "$@" >/dev/null 2>&1 < /dev/null &
+    PID=$!
+    echo
+    echo "Kurulum arka planda başladı (PID $PID)."
+    echo "Bu pencereyi kapatsanız ya da ekran donsa bile kurulum devam eder."
+    echo "İlerlemeyi daha sonra izlemek için:  tail -f $LOG"
+    echo
+    sleep 2
+    tail -n +1 -f "$LOG" --pid="$PID"
+    exit 0
+fi
+
 adim "İnternet bağlantısı kontrol ediliyor"
 if ! curl -sS -m 20 -o /dev/null https://github.com; then
     printf "${RD}[✘] github.com'a ulaşılamıyor. İnternet bağlantısını kontrol edin.${N}\n"
@@ -102,6 +120,8 @@ fi
 basari "Bağlantı var"
 
 export DEBIAN_FRONTEND=noninteractive
+# Güncelleme sırasında masaüstü/ekran yöneticisi servisleri yeniden başlatılmasın
+export NEEDRESTART_MODE=l NEEDRESTART_SUSPEND=1
 APT=(apt-get -y -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold)
 
 if [ "$APT_ADIMI" = 1 ]; then
