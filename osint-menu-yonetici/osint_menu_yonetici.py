@@ -87,7 +87,7 @@ def main(argv):
         from omy import gui
     except (ImportError, ValueError) as e:
         print("Grafik arayüz başlatılamadı: %s\nGerekli paketler: "
-              "sudo apt install python3-gi gir1.2-gtk-3.0 python3-xdg" % e, file=sys.stderr)
+              "sudo apt install python3-gi gir1.2-gtk-3.0" % e, file=sys.stderr)
         return 1
     return gui.main()
 

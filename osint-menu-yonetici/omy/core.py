@@ -564,6 +564,55 @@ def apply(state):
     return warnings
 
 
+_IMAGE_EXTS = (".png", ".svg", ".jpg", ".jpeg", ".ico", ".xpm", ".gif", ".webp")
+
+
+def find_repo_images(real_dir, limit=80):
+    """Aracın klasöründeki logo/simge olabilecek resimleri en olası olandan
+    başlayarak döndürür."""
+    found = []
+    if not real_dir or not os.path.isdir(real_dir):
+        return found
+    for dirpath, dirnames, filenames in os.walk(real_dir):
+        depth = os.path.relpath(dirpath, real_dir).count(os.sep)
+        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
+        if depth >= 3:
+            dirnames[:] = []
+        for fn in filenames:
+            if not fn.lower().endswith(_IMAGE_EXTS):
+                continue
+            full = os.path.join(dirpath, fn)
+            try:
+                size = os.path.getsize(full)
+            except OSError:
+                continue
+            if size == 0 or size > 3 * 1024 * 1024:
+                continue
+            low = fn.lower()
+            score = 0
+            if "logo" in low or "icon" in low or "favicon" in low:
+                score += 100
+            if os.path.basename(real_dir).lower() in low:
+                score += 30
+            if low.endswith(".svg"):
+                score += 10
+            if any(w in low for w in ("screenshot", "screen", "demo", "example", "banner",
+                                      "preview", "usage")):
+                score -= 40
+            found.append((score - depth * 5, full))
+    found.sort(key=lambda x: (-x[0], x[1]))
+    return [f for _s, f in found[:limit]]
+
+
+def best_repo_icon(real_dir):
+    """Adında logo/icon geçen ilk resmi döndürür (yoksa boş)."""
+    for path in find_repo_images(real_dir, limit=20):
+        low = os.path.basename(path).lower()
+        if "logo" in low or "icon" in low:
+            return path
+    return ""
+
+
 def pack_dir():
     """Hazır simge paketinin bulunduğu (gerçek) klasör."""
     real = sys_path(PACK_DIR)
@@ -629,7 +678,7 @@ def remove_icon(icon):
 
 
 # --------------------------------------------------------------------------
-# Menüyü okuma (pyxdg ile)
+# Menüyü okuma (XFCE ile aynı kurallar, bkz. xdgmenu.py)
 
 class MenuNode:
     def __init__(self, name, title, icon="", comment="", path=None, file=None):
@@ -643,97 +692,123 @@ class MenuNode:
         self.entries = []
 
 
+def real_user_home():
+    """Masaüstünü kullanan asıl kullanıcının ev klasörü (root olarak
+    çalışırken menüyü onun gördüğü gibi okuyabilmek için)."""
+    home = os.environ.get("OMY_REAL_HOME")
+    if home and os.path.isdir(home):
+        return home
+    import pwd
+    user = os.environ.get("OMY_REAL_USER") or os.environ.get("SUDO_USER")
+    uid = os.environ.get("PKEXEC_UID")
+    try:
+        if user and user != "root":
+            return pwd.getpwnam(user).pw_dir
+        if uid and uid != "0":
+            return pwd.getpwuid(int(uid)).pw_dir
+    except (KeyError, ValueError):
+        pass
+    if os.geteuid() != 0:
+        return os.path.expanduser("~")
+    # Hiçbir bilgi yoksa: grafik oturumu açık olan normal kullanıcıyı bul
+    candidates = []
+    for pw in pwd.getpwall():
+        if pw.pw_uid >= 1000 and pw.pw_dir.startswith("/home/") and \
+                os.path.isdir(os.path.join(pw.pw_dir, ".config", "xfce4")):
+            candidates.append(pw.pw_dir)
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def _adopt_real_user_env():
-    """Uygulama root olarak çalışırken menüyü asıl kullanıcının gördüğü gibi
-    okuyabilmek için XDG değişkenlerini ayarlar. xdg modülü içe
-    aktarılmadan önce çağrılmalıdır."""
     if os.geteuid() != 0:
         return
-    home = os.environ.get("OMY_REAL_HOME")
-    if not home:
-        user = os.environ.get("OMY_REAL_USER") or os.environ.get("SUDO_USER")
-        uid = os.environ.get("PKEXEC_UID")
-        try:
-            import pwd
-            if user:
-                home = pwd.getpwnam(user).pw_dir
-            elif uid:
-                home = pwd.getpwuid(int(uid)).pw_dir
-        except (KeyError, ValueError):
-            home = None
-    if home and home != "/root" and os.path.isdir(home):
+    home = real_user_home()
+    if home and home != "/root":
         os.environ.setdefault("XDG_CONFIG_HOME", os.path.join(home, ".config"))
         os.environ.setdefault("XDG_DATA_HOME", os.path.join(home, ".local", "share"))
     os.environ.setdefault("XDG_MENU_PREFIX", "xfce-")
 
 
 def find_menu_file():
-    from xdg.BaseDirectory import xdg_config_dirs
-    prefix = os.environ.get("XDG_MENU_PREFIX", "xfce-")
-    for name in (prefix + "applications.menu", "xfce-applications.menu",
-                 "applications.menu"):
-        for d in xdg_config_dirs:
-            p = os.path.join(d, "menus", name)
-            if os.path.isfile(p):
-                return p
-    return None
+    from . import xdgmenu
+    return xdgmenu.find_menu_file()
 
 
 def scan_menu():
-    """Uygulama menüsünü okuyup MenuNode ağacı döndürür. pyxdg (python3-xdg)
-    yüklü değilse OmyError fırlatır."""
+    """Uygulama menüsünü XFCE'nin gördüğü gibi okuyup MenuNode ağacı döndürür."""
     _adopt_real_user_env()
+    from . import xdgmenu
+    menu_file = xdgmenu.find_menu_file()
+    if not menu_file:
+        raise OmyError("Uygulama menüsü dosyası bulunamadı (/etc/xdg/menus/"
+                       "xfce-applications.menu). XFCE kurulu mu?")
     try:
-        import xdg.Config
-        import xdg.Menu
-    except ImportError:
-        raise OmyError("python3-xdg paketi yüklü değil; mevcut menü okunamıyor. "
-                       "Kurmak için: sudo apt install python3-xdg")
-    from xdg.BaseDirectory import xdg_config_dirs
-
-    class Builder(xdg.Menu.XMLMenuBuilder):
-        # pyxdg <DefaultMergeDirs/> için "xfce-applications-merged" klasörüne
-        # bakıyor; garcon (XFCE) ise ana uygulama menüsünde
-        # "applications-merged" kullanıyor. XFCE ile aynı davranalım.
-        def parse_default_merge_dirs(self, child, filename, parent):
-            base = os.path.splitext(os.path.basename(filename))[0]
-            prefix = os.environ.get("XDG_MENU_PREFIX", "xfce-")
-            if base == prefix + "applications":
-                base = "applications"
-            for d in reversed(xdg_config_dirs):
-                self.parse_merge_dir(os.path.join(d, "menus", base + "-merged"),
-                                     child, filename, parent)
-
-    xdg.Config.setWindowManager("XFCE")
-    menu_file = find_menu_file()
-    try:
-        menu = Builder().parse(menu_file)
-    except Exception as e:  # pyxdg çok çeşitli hatalar fırlatabiliyor
-        raise OmyError("Menü dosyası okunamadı (%s): %s" % (menu_file or "?", e))
+        menu = xdgmenu.parse(menu_file)
+    except Exception as e:  # bozuk bir menü dosyası yüzünden çökmeyelim
+        raise OmyError("Menü dosyası okunamadı (%s): %s" % (menu_file, e))
 
     def convert(m, path):
-        dir_file = None
-        if isinstance(m.Directory, xdg.Menu.MenuEntry):
-            dir_file = m.Directory.DesktopEntry.filename
-        node = MenuNode(m.Name, m.getName(), m.getIcon(), m.getComment(), path, dir_file)
-        for e in m.getEntries(show_hidden=True):
-            if isinstance(e, xdg.Menu.Menu):
-                if e.Show is True or e.Show == xdg.Menu.EMPTY:
-                    node.children.append(convert(e, path + [e.Name]))
-            elif isinstance(e, xdg.Menu.MenuEntry) and e.Show is True:
-                de = e.DesktopEntry
-                node.entries.append({
-                    "id": e.DesktopFileID,
-                    "title": de.getName(),
-                    "icon": de.getIcon(),
-                    "comment": de.getComment(),
-                    "file": de.filename,
-                })
+        de = xdgmenu.load_entry(m.directory_file) if m.directory_file else None
+        node = MenuNode(m.name, (de.get("Name", True) if de else "") or m.name,
+                        de.get("Icon") if de else "", de.get("Comment", True) if de else "",
+                        path, m.directory_file)
+        for sub in m.submenus:
+            if sub.deleted:
+                continue
+            sde = xdgmenu.load_entry(sub.directory_file) if sub.directory_file else None
+            if sde is not None and (sde.get_bool("NoDisplay") or sde.get_bool("Hidden")):
+                continue
+            node.children.append(convert(sub, path + [sub.name]))
+        for desktop_id, e in sorted(m.entries.items()):
+            if not e.visible():
+                continue
+            node.entries.append({
+                "id": desktop_id,
+                "title": e.get("Name", True) or desktop_id,
+                "icon": e.get("Icon"),
+                "comment": e.get("Comment", True),
+                "file": e.path,
+            })
         return node
 
     root = convert(menu, [])
     root.title = "Uygulama Menüsü"
     return root
+
+
+def whisker_favorites():
+    """Whisker menünün “Favorites” listesindeki uygulamalar."""
+    from . import xdgmenu
+    _adopt_real_user_env()
+    cfg = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    panel = os.path.join(cfg, "xfce4", "panel")
+    ids = []
+    try:
+        files = sorted(f for f in os.listdir(panel)
+                       if f.startswith("whiskermenu") and f.endswith(".rc"))
+    except OSError:
+        files = []
+    for fn in files:
+        try:
+            with open(os.path.join(panel, fn), encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    if line.startswith("favorites="):
+                        ids = [x.strip() for x in line.split("=", 1)[1].split(",") if x.strip()]
+                        break
+        except OSError:
+            continue
+        if ids:
+            break
+    result = []
+    for desktop_id in ids:
+        path = xdgmenu.find_desktop_file(desktop_id)
+        e = xdgmenu.load_entry(path) if path else None
+        if e is None:
+            continue
+        result.append({"id": desktop_id, "title": e.get("Name", True) or desktop_id,
+                       "icon": e.get("Icon"), "comment": e.get("Comment", True),
+                       "file": path})
+    return result
 
 
 def collect_desktop_ids(node, out=None):

@@ -20,7 +20,8 @@ DND_TARGET = "OMY_ROW"
 # TreeStore sütunları
 C_KIND, C_IDENT, C_PATH, C_ICON, C_TITLE, C_DETAIL, C_FG, C_WEIGHT, C_TIP, C_FILE = range(10)
 
-KIND_ORDER = {"root": 0, "menu": 1, "cat": 1, "tool": 2, "sys": 2}
+KIND_ORDER = {"root": 0, "favs": 1, "menu": 2, "cat": 2, "tool": 3, "sys": 3, "fav": 3}
+MENU_KINDS = ("root", "menu", "cat")
 
 SOURCE_LABELS = [
     ("git", "GitHub / Git deposu"),
@@ -199,7 +200,7 @@ class IconChooserDialog(Gtk.Dialog):
     SYSTEM_LIMIT = 600
     RESP_FILE = 1
 
-    def __init__(self, parent, current=""):
+    def __init__(self, parent, current="", extra_dir=None):
         super().__init__(title="Simge Seç", transient_for=parent, modal=True)
         self.set_default_size(760, 560)
         self.add_button("Dosyadan seç…", self.RESP_FILE)
@@ -233,6 +234,19 @@ class IconChooserDialog(Gtk.Dialog):
                                                    os.path.basename(icon["path"]))).casefold()])
         self._add_page(self.pack_view, "Hazır OSINT Simgeleri")
 
+        # Aracın kendi klasöründeki resimler (logo, ikon…)
+        self.repo_store = Gtk.ListStore(GdkPixbuf.Pixbuf, str, str, str)
+        self.repo_filter = self.repo_store.filter_new()
+        self.repo_filter.set_visible_func(self._pack_visible)
+        self.repo_view = self._make_view(self.repo_filter, pixbuf_col=0, text_col=1)
+        for path in core.find_repo_images(extra_dir) if extra_dir else []:
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_scale(path, 48, 48, True)
+            except GLib.Error:
+                continue
+            rel = os.path.relpath(path, extra_dir)
+            self.repo_store.append([pb, os.path.basename(path), path, rel.casefold()])
+
         # Sistem / Kali simgeleri
         theme = Gtk.IconTheme.get_default()
         names = [n for n in theme.list_icons(None) if not n.endswith("-symbolic")]
@@ -241,6 +255,10 @@ class IconChooserDialog(Gtk.Dialog):
         self.sys_store = Gtk.ListStore(str, str)
         self.sys_view = self._make_view(self.sys_store, icon_name_col=0, text_col=1)
         self._add_page(self.sys_view, "Sistem / Kali Simgeleri")
+        self.REPO_PAGE = -1
+        if len(self.repo_store):
+            self._add_page(self.repo_view, "Aracın Kendi Resimleri (%d)" % len(self.repo_store))
+            self.REPO_PAGE = 2
         self.sys_info = Gtk.Label(xalign=0)
         self.sys_info.get_style_context().add_class("dim-label")
         box.pack_start(self.sys_info, False, False, 0)
@@ -249,6 +267,8 @@ class IconChooserDialog(Gtk.Dialog):
         box.pack_start(self.selected_label, False, False, 0)
         self.notebook.connect("switch-page", lambda *_a: GLib.idle_add(self._refilter))
         self._fill_system()
+        if self.REPO_PAGE >= 0 and not current:
+            GLib.idle_add(self.notebook.set_current_page, self.REPO_PAGE)
         if current and os.path.basename(current).startswith("osint-"):
             for i, row in enumerate(self.pack_filter):
                 if row[2] == current:
@@ -300,6 +320,7 @@ class IconChooserDialog(Gtk.Dialog):
     def _refilter(self):
         self._show_selected()
         self.pack_filter.refilter()
+        self.repo_filter.refilter()
         if self.notebook.get_current_page() == 1:
             self._fill_system()
         else:
@@ -307,6 +328,10 @@ class IconChooserDialog(Gtk.Dialog):
         return False
 
     def _current(self):
+        if self.notebook.get_current_page() == self.REPO_PAGE:
+            items = self.repo_view.get_selected_items()
+            return (self.repo_filter[items[0]][2], self.repo_filter[items[0]][1]) if items \
+                else (None, None)
         if self.notebook.get_current_page() == 0:
             items = self.pack_view.get_selected_items()
             return (self.pack_filter[items[0]][2], self.pack_filter[items[0]][1]) if items \
@@ -354,8 +379,9 @@ def icon_label(value):
 
 
 class IconPicker(Gtk.Box):
-    def __init__(self, parent_window, default_icon):
+    def __init__(self, parent_window, default_icon, extra_dir=None):
         super().__init__(spacing=6)
+        self.extra_dir = extra_dir
         self.parent_window = parent_window
         self.default_icon = default_icon
         self.value = ""
@@ -392,7 +418,7 @@ class IconPicker(Gtk.Box):
         self.clear_btn.set_sensitive(bool(self.value))
 
     def _choose(self, _btn):
-        value = IconChooserDialog(self.parent_window, self.value).choose()
+        value = IconChooserDialog(self.parent_window, self.value, self.extra_dir).choose()
         if value:
             self.set(value)
 
@@ -502,7 +528,7 @@ class EntryPanel(Gtk.Grid):
 class EntryDialog(Gtk.Dialog):
     """Kurulumdan sonra çalıştırılacak dosyayı seçtirir."""
 
-    def __init__(self, parent, tool, warn):
+    def __init__(self, parent, tool, warn, icon=""):
         super().__init__(title="Başlangıç dosyasını seçin", transient_for=parent, modal=True)
         self.add_buttons("İptal", Gtk.ResponseType.CANCEL, "Tamam", Gtk.ResponseType.OK)
         self.set_default_response(Gtk.ResponseType.OK)
@@ -523,6 +549,20 @@ class EntryDialog(Gtk.Dialog):
         self.panel = EntryPanel(core.sys_path(tool["source"]["dir"]),
                                 [tool["command"], tool["name"], tool["id"]], tool["source"])
         box.pack_start(self.panel, False, False, 0)
+
+        real_dir = core.sys_path(tool["source"]["dir"])
+        self.icon_picker = IconPicker(self, "utilities-terminal", extra_dir=real_dir)
+        self.icon_picker.set(icon or core.best_repo_icon(real_dir))
+        row = Gtk.Box(spacing=10)
+        row.pack_start(grid_label("Simge"), False, False, 0)
+        row.pack_start(self.icon_picker, True, True, 0)
+        box.pack_start(row, False, False, 0)
+        if core.find_repo_images(real_dir, limit=1):
+            hint = Gtk.Label(xalign=0, wrap=True)
+            hint.set_markup("<small>Simge seçerken “Aracın Kendi Resimleri” sekmesinde "
+                            "deponun içindeki logoları da bulabilirsiniz.</small>")
+            hint.get_style_context().add_class("dim-label")
+            box.pack_start(hint, False, False, 0)
         self.show_all()
 
 
@@ -631,6 +671,8 @@ class ToolDialog(Gtk.Dialog):
         self.source_entry.connect("changed", self._source_changed)
         self.source_combo.connect("changed", self._type_changed)
 
+        if self.editing and tool["source"].get("dir"):
+            self.icon_picker.extra_dir = core.sys_path(tool["source"]["dir"])
         if self.editing:
             self.name_entry.set_text(tool["name"])
             self.cmd_entry.set_text(tool["command"])
@@ -928,6 +970,7 @@ class MainWindow(Gtk.Window):
         self.scan = None
         self.scan_error = None
         self.menus = []
+        self.favs = []
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.add(outer)
@@ -936,6 +979,14 @@ class MainWindow(Gtk.Window):
         bar = Gtk.Box(spacing=6)
         bar.set_border_width(8)
         outer.pack_start(bar, False, False, 0)
+        self.infobar = Gtk.InfoBar(message_type=Gtk.MessageType.WARNING)
+        self.infobar.set_show_close_button(True)
+        self.infobar.connect("response", lambda ib, _r: ib.hide())
+        self.infobar_label = Gtk.Label(xalign=0, wrap=True, selectable=True)
+        self.infobar.get_content_area().add(self.infobar_label)
+        self.infobar.set_no_show_all(True)
+        self.infobar_label.show()
+        outer.pack_start(self.infobar, False, False, 0)
 
         def button(label, icon, cb, tip):
             b = Gtk.Button(label=label)
@@ -1049,13 +1100,27 @@ class MainWindow(Gtk.Window):
         else:
             self.statusbar.set_text(text)
 
-    def reload(self, first=False):
+    def _scan(self):
         try:
             self.scan = core.scan_menu()
             self.scan_error = None
         except core.OmyError as e:
             self.scan = None
             self.scan_error = str(e)
+        try:
+            self.favs = core.whisker_favorites()
+        except Exception:  # favoriler yalnızca bilgi amaçlı; hata önemsiz
+            self.favs = []
+        if self.scan_error:
+            self.infobar_label.set_markup(
+                "<b>Mevcut menü okunamadı.</b> Yalnızca bu araçla eklediğiniz öğeler "
+                "gösteriliyor.\n%s" % GLib.markup_escape_text(self.scan_error))
+            self.infobar.show()
+        else:
+            self.infobar.hide()
+
+    def reload(self, first=False):
+        self._scan()
         expanded = None if first else self._expanded_keys()
         self.rebuild(expanded)
         if self.scan_error:
@@ -1072,11 +1137,7 @@ class MainWindow(Gtk.Window):
             error(self, "Değişiklikler kaydedilemedi.", str(e))
             return False
         expanded = self._expanded_keys()
-        try:
-            self.scan = core.scan_menu()
-            self.scan_error = None
-        except core.OmyError as e:
-            self.scan, self.scan_error = None, str(e)
+        self._scan()
         self.rebuild(expanded, select)
         missing = []
         if self.scan is not None:
@@ -1135,6 +1196,18 @@ class MainWindow(Gtk.Window):
                                           fg=grey, tip=e["comment"] or e["id"],
                                           file=e.get("file")))
 
+        if self.favs:
+            favs = node("favs", "", [], "Favoriler (Whisker menü)", "starred",
+                        "Whisker'ın favori listesi", weight=700, fallback="emblem-favorite",
+                        tip="Whisker menüdeki “Favorites” listesi. Bir uygulamayı favorilere "
+                            "eklemek için menüde sağ tıklayıp “Add to Favorites” seçin.")
+            for e in self.favs:
+                favs["children"].append(node("fav", e["id"], [], e["title"], e["icon"],
+                                             "Favori uygulama" + custom("app", e["id"]),
+                                             fg=grey, tip=e["comment"] or e["id"],
+                                             file=e["file"]))
+            root["children"].append(favs)
+
         if self.scan is not None:
             for e in self.scan.entries:
                 if not e["id"].startswith(core.PREFIX):
@@ -1177,7 +1250,7 @@ class MainWindow(Gtk.Window):
         return root
 
     def _filter(self, n, query, show_sys):
-        if n["kind"] == "sys" and not show_sys:
+        if n["kind"] in ("sys", "fav", "favs") and not show_sys:
             return None
         text = ("%s %s" % (n["title"], n["detail"])).casefold()
         if query and query in text and n["kind"] != "root":
@@ -1188,7 +1261,7 @@ class MainWindow(Gtk.Window):
                                 if c]
             return kept
         kids = [c for c in (self._filter(c, query, show_sys) for c in n["children"]) if c]
-        if n["kind"] in ("root", "menu", "cat"):
+        if n["kind"] in ("root", "menu", "cat", "favs"):
             if kids or not query or n["kind"] == "root":
                 kept = dict(n)
                 kept["children"] = kids
@@ -1281,16 +1354,16 @@ class MainWindow(Gtk.Window):
     def _update_buttons(self):
         row = self._selected()
         kind = row[C_KIND] if row else None
-        self.btn_edit.set_sensitive(kind in ("tool", "cat", "menu", "sys"))
+        self.btn_edit.set_sensitive(kind in ("tool", "cat", "menu", "sys", "fav"))
         self.btn_del.set_sensitive(kind in ("tool", "cat"))
         tool = core.find_tool(self.state, row[C_IDENT]) if kind == "tool" else None
         self.btn_update.set_sensitive(bool(tool) and tool["source"]["type"] != "existing")
-        self.btn_test.set_sensitive(kind in ("tool", "sys"))
+        self.btn_test.set_sensitive(kind in ("tool", "sys", "fav"))
 
     # -------------------------------------------------------------- olaylar
     def _on_row_activated(self, tree, path, _col):
         kind = self.store[path][C_KIND]
-        if kind in ("tool", "cat", "sys"):
+        if kind in ("tool", "cat", "sys", "fav"):
             self.on_edit()
         elif tree.row_expanded(path):
             tree.collapse_row(path)
@@ -1338,11 +1411,11 @@ class MainWindow(Gtk.Window):
         item("Buraya hazır OSINT kategorileri ekle…", self.on_presets)
         menu.append(Gtk.SeparatorMenuItem())
         item("Düzenle…" if kind in ("tool", "cat", None, "root") else "Adını / simgesini değiştir…",
-             self.on_edit, kind in ("tool", "cat", "menu", "sys"))
+             self.on_edit, kind in ("tool", "cat", "menu", "sys", "fav"))
         item("Sil", self.on_delete, kind in ("tool", "cat"))
         tool = core.find_tool(self.state, row[C_IDENT]) if kind == "tool" else None
         item("Güncelle", self.on_update, bool(tool) and tool["source"]["type"] != "existing")
-        item("Dene (çalıştır)", self.on_test, kind in ("tool", "sys"))
+        item("Dene (çalıştır)", self.on_test, kind in ("tool", "sys", "fav"))
         if tool and tool["source"].get("dir"):
             item("Klasörü aç", lambda: self._open_folder(tool["source"]["dir"]))
         menu.show_all()
@@ -1369,7 +1442,8 @@ class MainWindow(Gtk.Window):
             raw = data.get_data()
             kind, ident = bytes(raw).decode("utf-8").split("\n", 1) if raw else ("", "")
             dest = tree.get_dest_row_at_pos(x, y)
-            if dest is not None and kind in ("tool", "cat"):
+            if dest is not None and kind in ("tool", "cat") and \
+                    self.store[dest[0]][C_KIND] not in ("favs", "fav"):
                 path, pos = dest
                 row = self.store[path]
                 target = self._menu_path_of(row)
@@ -1514,7 +1588,7 @@ class MainWindow(Gtk.Window):
                 "menu": v["menu"], "terminal": v["terminal"], "source": src}
 
         if t in core.SOURCES_WITH_WRAPPER:
-            edlg = EntryDialog(self, tool, warn=not res.get("deps_ok", True))
+            edlg = EntryDialog(self, tool, warn=not res.get("deps_ok", True), icon=v["icon"])
             while True:
                 resp = edlg.run()
                 if resp != Gtk.ResponseType.OK:
@@ -1524,6 +1598,7 @@ class MainWindow(Gtk.Window):
                         core.uninstall_tool(tool, True)
                     return
                 edlg.panel.apply_to(src)
+                v["icon"] = edlg.icon_picker.get()
                 if not src["entry"]:
                     error(self, "Lütfen çalıştırılacak dosyayı seçin.")
                     continue
@@ -1584,7 +1659,7 @@ class MainWindow(Gtk.Window):
             self._edit_tool(core.find_tool(self.state, row[C_IDENT]))
         elif row[C_KIND] == "cat":
             self._edit_cat(core.find_cat(self.state, row[C_IDENT]))
-        elif row[C_KIND] in ("menu", "sys"):
+        elif row[C_KIND] in ("menu", "sys", "fav"):
             self._edit_system(row)
 
     def _edit_system(self, row):
@@ -1624,6 +1699,8 @@ class MainWindow(Gtk.Window):
 
     def _row_icon(self, row):
         """Satırdaki öğenin dosyada yazan simge değeri."""
+        if row[C_KIND] == "fav":
+            return next((e["icon"] for e in self.favs if e["id"] == row[C_IDENT]), "")
         if self.scan is None:
             return ""
         path = row[C_PATH].split("/") if row[C_PATH] else []
@@ -1825,7 +1902,7 @@ class MainWindow(Gtk.Window):
 
     def on_test(self):
         row = self._selected()
-        if row is None or row[C_KIND] not in ("tool", "sys"):
+        if row is None or row[C_KIND] not in ("tool", "sys", "fav"):
             return
         desktop = core.desktop_id(core.find_tool(self.state, row[C_IDENT])) \
             if row[C_KIND] == "tool" else row[C_IDENT]

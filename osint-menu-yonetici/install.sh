@@ -12,9 +12,9 @@ APP="/usr/share/osint-menu-yonetici/app"
 
 echo "[*] Gerekli paketler kuruluyor..."
 export DEBIAN_FRONTEND=noninteractive
-if ! apt-get install -y python3 python3-gi gir1.2-gtk-3.0 python3-xdg git python3-venv; then
+if ! apt-get install -y python3 python3-gi gir1.2-gtk-3.0 git python3-venv; then
     apt-get update
-    apt-get install -y python3 python3-gi gir1.2-gtk-3.0 python3-xdg git python3-venv
+    apt-get install -y python3 python3-gi gir1.2-gtk-3.0 git python3-venv
 fi
 # İsteğe bağlı: pipx (pipx ile araç kurmak için)
 apt-get install -y pipx >/dev/null 2>&1 || echo "[!] pipx kurulamadı; pipx kaynaklı araçlar için elle kurun."

@@ -27,9 +27,11 @@ istediğiniz kategoriye koyar ve **terminalde adını yazınca çalışır** hal
 - Düzenle, sil, güncelle (`git pull` / `pipx upgrade` / `apt`), **Dene** (menüden açılmış
   gibi çalıştır), arama.
 
-Var olan sistem menünüz (OSINT ▸ OSINT email gibi) okunur ve ağaçta gri olarak
-gösterilir; yeni araçlarınızı bunların içine de ekleyebilirsiniz. Sistem dosyalarınıza
-dokunulmaz, her şey ayrı bir menü birleştirme dosyasıyla eklenir.
+Var olan menünüz XFCE/Whisker'ın gördüğü şekilde okunur: Kali kategorileri, menulibre
+ya da “Menüyü düzenle” ile yaptığınız kategoriler (OSINT ▸ OSINT email gibi) ve Whisker'ın
+**Favorites** listesi ağaçta gri olarak gösterilir. Yeni araçlarınızı bunların içine de
+ekleyebilirsiniz. Sistem dosyalarınıza dokunulmaz; her şey ayrı bir menü birleştirme
+dosyasıyla eklenir.
 
 ## Kurulum
 
@@ -39,7 +41,7 @@ cd Expulso/osint-menu-yonetici
 sudo ./install.sh
 ```
 
-Gerekli paketler (`python3-gi`, `gir1.2-gtk-3.0`, `python3-xdg`, `git`, `python3-venv`,
+Gerekli paketler (`python3-gi`, `gir1.2-gtk-3.0`, `git`, `python3-venv`,
 `pipx`) otomatik kurulur.
 
 Açmak için: **Menü ▸ Settings ▸ OSINT Menü Yöneticisi** ya da terminalde
@@ -99,6 +101,9 @@ açar:
   `telefon`, `dark`, `kripto` gibi bir kelime yazıp süzebilirsiniz.
 - **Sistem / Kali Simgeleri:** Yüklü simge temasındaki bütün simgeler. Kali araç
   simgeleri `kali-` ile başlar (ör. `kali-sherlock`, `kali-maltego`).
+- **Aracın Kendi Resimleri:** GitHub'dan indirilen aracın klasöründeki resimler (logo,
+  ikon…). Adında `logo` ya da `icon` geçen bir resim varsa kurulumun son adımında simge
+  olarak kendiliğinden önerilir.
 - **Dosyadan seç…:** Kendi PNG/SVG/XPM dosyanız. Dosya sisteme kopyalanır, yani ISO'ya da
   girer.
 
@@ -107,8 +112,9 @@ Simge seçmeden bir araç eklerseniz, Kali temasında aracın adına uygun bir s
 
 ### Var olan kategori ve uygulamaların ad/simgesini değiştirmek
 
-Ağaçta gri görünen bir uygulamayı ya da “OSINT email” gibi sistemdeki bir kategoriyi seçip
-**Düzenle**'ye basın (sağ tık ▸ “Adını / simgesini değiştir…”). Ad ve simgeyi değiştirip
+Ağaçta gri görünen bir uygulamayı (ör. Holehe, H8mail) ya da “OSINT email” gibi sistemdeki
+bir kategoriyi seçip **Düzenle**'ye basın, ya da üzerine çift tıklayın (sağ tık ▸
+“Adını / simgesini değiştir…”). Favoriler listesindeki uygulamalar için de aynısı geçerli. Ad ve simgeyi değiştirip
 **Kaydet**'e basın. Değiştirilen öğeler “(özelleştirildi)” olarak işaretlenir. Aynı
 pencerede **Varsayılana döndür** ile özgün haline geri döner.
 
@@ -154,6 +160,15 @@ Her şey sistem klasörlerine yazıldığı için ISO'ya otomatik olarak dahil o
 - Eklenenleri listelemek için: `osint-menu-yonetici --liste`
 
 ## Sorun giderme
+
+- **Mevcut menü görünmüyor:** Pencerenin üstünde sarı bir uyarı çubuğu çıkar ve nedenini
+  yazar. Aracı her zaman normal kullanıcınızla, menüden ya da `osint-menu-yonetici`
+  komutuyla açın (kendisi parola sorar). `sudo su` ile root olup açarsanız sizin
+  kullanıcı menünüzü (`~/.config/menus`) bulamayabilir.
+- **Favorites:** Whisker'ın favori listesi bir menü kategorisi değildir. Ağaçta en üstte
+  “Favoriler (Whisker menü)” olarak gösterilir ve buradaki uygulamaların simgesini
+  değiştirebilirsiniz. Listeye öğe eklemek için Whisker menüde uygulamaya sağ tıklayıp
+  “Add to Favorites” seçin.
 
 - **Menüde görünmüyor:** Birkaç saniye bekleyin; görünmezse `xfce4-panel -r` ile paneli
   yeniden başlatın. Boş kategoriler menüde gösterilmez.

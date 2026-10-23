@@ -286,6 +286,74 @@ class CoreTests(unittest.TestCase):
             ROOT, "usr/local/share/desktop-directories/osint-email.directory")))
         os.unlink(os.path.join(user_dir, "osint.directory"))
 
+    def test_parser_rules(self):
+        """Move, MergeFile type=parent, Not/And kuralları, OnlyUnallocated,
+        kullanıcı menüsü ve Whisker favorileri."""
+        from omy import xdgmenu
+        write("usr/share/applications/sherlock.desktop",
+              "[Desktop Entry]\nType=Application\nName=Sherlock\nName[tr]=Şerlok\n"
+              "Exec=sherlock\nCategories=X-Osint-User;X-Gizli;\n")
+        write("usr/share/applications/gizli.desktop",
+              "[Desktop Entry]\nType=Application\nName=Gizli\nExec=x\nNoDisplay=true\n"
+              "Categories=X-Osint-User;\n")
+        write("home/.config/menus/xfce-applications.menu", """
+            <!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
+              "http://www.freedesktop.org/standards/menu-spec/1.0/menu.dtd">
+            <Menu>
+              <Name>Xfce</Name>
+              <MergeFile type="parent">/etc/xdg/menus/xfce-applications.menu</MergeFile>
+              <Menu>
+                <Name>Kullanici</Name>
+                <Include><And><Category>X-Osint-User</Category>
+                  <Not><Filename>yok.desktop</Filename></Not></And></Include>
+              </Menu>
+              <Move><Old>Kullanici</Old><New>osint/Kullanici</New></Move>
+            </Menu>
+        """)
+        old_lang = os.environ.get("LANG")
+        os.environ["LANG"] = "tr_TR.UTF-8"
+        xdgmenu._LOCALES = None
+        try:
+            tree = core.scan_menu()
+        finally:
+            os.unlink(os.path.join(ROOT, "home/.config/menus/xfce-applications.menu"))
+            if old_lang is None:
+                del os.environ["LANG"]
+            else:
+                os.environ["LANG"] = old_lang
+            xdgmenu._LOCALES = None
+        user = find(tree, ["osint", "Kullanici"])
+        # NoDisplay olan gizlenir, yerelleştirilmiş ad kullanılır
+        self.assertEqual([e["title"] for e in user.entries], ["Şerlok"])
+        # Sistem menüsü de (parent) birleştirilmiş olmalı
+        self.assertEqual(find(tree, ["osint", "osint-email"]).title, "OSINT email")
+        # Diğer hiçbir yere ayrılmamış uygulamalar "Other"a düşer, sherlock düşmez
+        other = find(tree, ["Other"])
+        self.assertNotIn("sherlock.desktop", [e["id"] for e in other.entries])
+
+        write("home/.config/xfce4/panel/whiskermenu-1.rc",
+              "button-icon=kali\nfavorites=holehe.desktop,yok.desktop,sherlock.desktop\n")
+        try:
+            favs = core.whisker_favorites()
+        finally:
+            os.unlink(os.path.join(ROOT, "home/.config/xfce4/panel/whiskermenu-1.rc"))
+        self.assertEqual([f["id"] for f in favs], ["holehe.desktop", "sherlock.desktop"])
+        os.unlink(os.path.join(ROOT, "usr/share/applications/sherlock.desktop"))
+        os.unlink(os.path.join(ROOT, "usr/share/applications/gizli.desktop"))
+
+    def test_repo_images(self):
+        d = os.path.join(ROOT, "repo-img")
+        os.makedirs(os.path.join(d, "docs"))
+        os.makedirs(os.path.join(d, "assets"))
+        for rel in ("screenshot.png", "assets/logo.png", "assets/other.jpg", "docs/x.png"):
+            with open(os.path.join(d, rel), "wb") as f:
+                f.write(b"x")
+        imgs = core.find_repo_images(d)
+        self.assertEqual(os.path.relpath(imgs[0], d), "assets/logo.png")
+        self.assertNotIn(os.path.join(d, "docs/x.png"), imgs)
+        self.assertEqual(core.best_repo_icon(d), os.path.join(d, "assets/logo.png"))
+        shutil.rmtree(d)
+
 
 if __name__ == "__main__":
     unittest.main()
