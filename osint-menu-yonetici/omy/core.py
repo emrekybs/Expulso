@@ -376,6 +376,8 @@ def build_menu_xml(state):
         node_at(cat_path(cat))["directory"] = cat["id"] + ".directory"
     for tool in state["tools"]:
         node_at(tool["menu"])["files"].append(desktop_id(tool))
+        for extra in tool.get("also", []):
+            node_at(extra)["files"].append(desktop_id(tool))
 
     out = []
 
@@ -880,7 +882,7 @@ def find_override(state, kind, ident):
     return None
 
 
-def set_override(state, kind, ident, orig, name, icon):
+def set_override(state, kind, ident, orig, name, icon, hide=False):
     """Mevcut bir kategori (kind="directory") ya da uygulamanın (kind="app")
     adını/simgesini değiştirir. orig: dosyanın gerçek tam yolu."""
     ov = find_override(state, kind, ident)
@@ -896,6 +898,7 @@ def set_override(state, kind, ident, orig, name, icon):
         state.setdefault("overrides", []).append(ov)
     ov["name"] = name or ""
     ov["icon"] = icon or ""
+    ov["hide"] = bool(hide)
     return ov
 
 
@@ -912,7 +915,7 @@ def remove_override(state, ov):
     state["overrides"].remove(ov)
 
 
-def modify_entry_text(text, name, icon):
+def modify_entry_text(text, name, icon, hide=False):
     """[Desktop Entry] grubundaki Name/Icon satırlarını değiştirir."""
     out = []
     group = None
@@ -931,9 +934,13 @@ def modify_entry_text(text, name, icon):
             out.append(line)
             if group == "[Desktop Entry]":
                 out.append(MARKER)
+                if hide:
+                    out.append("NoDisplay=true")
             continue
         if group == "[Desktop Entry]" and "=" in line and not stripped.startswith("#"):
             key = line.split("=", 1)[0].strip()
+            if hide and key == "NoDisplay":
+                continue
             if name and (key == "Name" or key.startswith("Name[")):
                 if not done_name:
                     out.append("Name=%s" % kf_escape(name))
@@ -967,7 +974,8 @@ def apply_overrides(state, warnings):
         if not ov["backup"] and os.path.exists(target) and not _is_ours(target):
             warnings.append("%s başka bir programa ait; değiştirilmedi." % ov["target"])
             continue
-        _write_file(target, modify_entry_text(text, ov.get("name"), ov.get("icon")))
+        _write_file(target, modify_entry_text(text, ov.get("name"), ov.get("icon"),
+                                              ov.get("hide", False)))
 
 
 def cleanup_all():
@@ -1264,10 +1272,36 @@ def _pipx_apps():
     return result
 
 
-def install_pipx(spec, log):
+BACKUP_DIR = "/var/backups/osint-menu-yonetici"
+
+
+def backup_old_command(command, log):
+    """/usr/local/bin içindeki eski 'pip/easy_install' betiğini yedekler ki
+    yeni kurulum onun yerine geçebilsin. Başka hiçbir dosyaya dokunmaz."""
+    path = sys_path(os.path.join(BIN_DIR, command))
+    if not os.path.isfile(path) or os.path.islink(path) or _is_ours(path):
+        return
+    try:
+        with open(path, encoding="utf-8", errors="ignore") as f:
+            head = f.read(2000)
+    except OSError:
+        return
+    if "EASY-INSTALL" not in head and "__requires__" not in head and \
+            "from pkg_resources" not in head and "import load_entry_point" not in head and \
+            not re.search(r"^from \S+ import main", head, re.M):
+        return
+    dest_dir = sys_path(os.path.join(BACKUP_DIR, "bin"))
+    os.makedirs(dest_dir, exist_ok=True)
+    shutil.move(path, os.path.join(dest_dir, command))
+    log("  > eski %s betiği yedeklendi: %s/bin/%s\n" % (command, BACKUP_DIR, command))
+
+
+def install_pipx(spec, log, commands=()):
     """pipx paketini sistem geneline (/opt/pipx, /usr/local/bin) kurar."""
     if not shutil.which("pipx"):
         raise OmyError("pipx yüklü değil (sudo apt install pipx).")
+    for c in commands:
+        backup_old_command(c, log)
     spec = spec.strip()
     if re.match(r"^https?://", spec) or spec.startswith("github.com/"):
         spec = "git+" + (spec if spec.startswith("http") else "https://" + spec)

@@ -163,6 +163,46 @@ kategoriler = OSINT
         core.apply(core.empty_state())
         shutil.rmtree(src)
 
+    def test_migrate_existing(self):
+        """Eski usulle /usr/share altına kurulmuş bir aracı yeniden kurup eski
+        menü kaydını gizleme; ek kategori."""
+        src = os.path.join(ROOT, "src2")
+        make_repo(os.path.join(src, "upstream"), {"eyes.py": "print('EYES')\n",
+                                                  "eyes.png": "x"})
+        old = os.path.join(ROOT, "usr/share/Eyes")
+        git("clone", "-q", os.path.join(src, "upstream"), old)
+        fx.write("usr/share/applications/eyes.desktop",
+                 "[Desktop Entry]\nType=Application\nName=Eyes\nExec=eyes -h\n"
+                 "Icon=/usr/share/Eyes/eyes.png\nCategories=X-Osint-Email;\n")
+        ini = os.path.join(ROOT, "liste2.ini")
+        with open(ini, "w") as f:
+            f.write("""
+[arac: Eyes]
+kaynak = git %s
+kategori = OSINT email
+ek_kategori = Settings
+eski = eyes.desktop
+simge = %s
+""" % (old, os.path.join(old, "eyes.png")))
+        out = []
+        self.assertEqual(toplu.Batch(log=out.append).run(ini), 0, "".join(out))
+        tree = core.scan_menu()
+        email = fx.find(tree, ["osint", "osint-email"])
+        ids = [e["id"] for e in email.entries]
+        self.assertIn("omy-eyes.desktop", ids)
+        self.assertNotIn("eyes.desktop", ids)  # eski kayıt gizlendi
+        self.assertIn("omy-eyes.desktop", [e["id"] for e in fx.find(tree, ["Settings"]).entries])
+        self.assertTrue(os.path.isfile(core.sys_path(core.load_state()["tools"][0]["icon"])))
+        state = core.load_state()
+        for ov in list(state["overrides"]):
+            core.remove_override(state, ov)
+        for t in list(state["tools"]):
+            core.uninstall_tool(t, True)
+        core.apply(core.empty_state())
+        os.unlink(core.sys_path("/usr/share/applications/eyes.desktop"))
+        shutil.rmtree(old)
+        shutil.rmtree(src)
+
     def test_guard_and_exec_parsing(self):
         from omy import guncelle
         self.assertIsNone(guncelle._git_root("/root/.bashrc"))

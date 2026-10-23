@@ -42,6 +42,7 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 
 from . import core
@@ -233,8 +234,9 @@ class Batch:
                 self.log("  = zaten ekli, atlandı: %s\n" % name)
                 self.skipped.append(name)
                 return
+        old_ids = [x.strip() for x in sec.get("eski", "").split(",") if x.strip()]
         existing = self.menu_entries.get(_loose(name))
-        if existing and not _bool(sec.get("zorla"), False):
+        if existing and not old_ids and not _bool(sec.get("zorla"), False):
             self.log("  = menüde zaten var (%s ▸ %s), yeniden kurulmadı.\n"
                      % (existing[1], existing[0]))
             self.skipped.append(name)
@@ -273,6 +275,7 @@ class Batch:
             src["url"] = value.strip()
             args, terminal = shlex.quote(value.strip()), False
         elif kind == "git":
+            value = self._git_source(value)
             res = core.install_git(value, tool_id, command, self.log, build=build)
             src.update({"url": value, "dir": res["dir"], "build": build})
             deps_ok = res["deps_ok"]
@@ -283,7 +286,7 @@ class Batch:
                                                         self.log)
             src["build"] = build
         elif kind == "pipx":
-            res = core.install_pipx(value, self.log)
+            res = core.install_pipx(value, self.log, commands=[command])
             src.update({"url": value, "package": res["package"]})
             if res["apps"] and command not in res["apps"]:
                 self.log("  > pipx paketinin komutu: %s\n" % ", ".join(res["apps"]))
@@ -320,6 +323,15 @@ class Batch:
                 "terminal": terminal, "source": src}
         if sec.get("ac", "").strip():
             tool["open_url"] = sec["ac"].strip()
+        also = []
+        for spec in [x.strip() for x in sec.get("ek_kategori", "").split(",") if x.strip()]:
+            path, err = self.find_menu(spec)
+            if path:
+                also.append(path)
+            else:
+                self.log("  ! Ek kategori bulunamadı: %s\n" % spec)
+        if also:
+            tool["also"] = also
         core.split_args(tool["args"])
         tool["icon"] = core.store_icon(self.resolve_icon(sec.get("simge"), tool),
                                        "arac-" + tool_id)
@@ -327,6 +339,8 @@ class Batch:
         for w in core.apply(self.state):
             self.log("  ! %s\n" % w)
         self.ok.append(name)
+        for old in old_ids:
+            self._hide_old(old)
         if not deps_ok:
             self.notes.append("%s: bazı bağımlılıklar kurulamadı (günlüğe bakın)" % name)
         if sec.get("not", "").strip():
@@ -335,6 +349,35 @@ class Batch:
             self.log("  ✔ %s eklendi (web kısayolu)\n" % name)
         else:
             self.log("  ✔ %s eklendi → terminalde: %s\n" % (name, command))
+
+    def _git_source(self, value):
+        """'git /usr/share/Arac' gibi yerel bir klasör verilmişse onun
+        GitHub adresini kullanır (yoksa klasörün kendisinden kopyalar)."""
+        value = value.strip()
+        if os.path.isdir(os.path.join(value, ".git")):
+            try:
+                url = subprocess.run(["git", "-c", "safe.directory=*", "-C", value, "config",
+                                      "--get", "remote.origin.url"], capture_output=True,
+                                     text=True, timeout=30).stdout.strip()
+            except (OSError, subprocess.SubprocessError):
+                url = ""
+            if url:
+                self.log("  > %s klasörünün kaynağı: %s\n" % (value, url))
+                return url
+        return value
+
+    def _hide_old(self, desktop_id):
+        """Eski menü kaydını (yeni kurulum başarılı olduktan sonra) gizler."""
+        from . import xdgmenu
+        path = xdgmenu.find_desktop_file(desktop_id)
+        if not path:
+            return
+        try:
+            core.set_override(self.state, "app", desktop_id, path, "", "", hide=True)
+            core.apply(self.state)
+            self.log("  > eski menü kaydı gizlendi: %s\n" % desktop_id)
+        except (OSError, core.OmyError) as e:
+            self.log("  ! eski menü kaydı gizlenemedi (%s): %s\n" % (desktop_id, e))
 
     def run(self, path):
         cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=(";",),
