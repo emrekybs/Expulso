@@ -380,7 +380,7 @@ class Batch:
             self.log("  ! eski menü kaydı gizlenemedi (%s): %s\n" % (desktop_id, e))
 
     def run(self, path):
-        cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=(";",),
+        cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=None,
                                        strict=False)
         cp.optionxform = str.lower
         try:

@@ -193,7 +193,7 @@ def build_payload(ini_path):
 
 def count_tools(ini_path):
     import configparser
-    cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=(";",),
+    cp = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=None,
                                    strict=False)
     cp.read(ini_path, encoding="utf-8")
     return sum(1 for s in cp.sections() if s.lower().startswith(("arac:", "araç:")))
