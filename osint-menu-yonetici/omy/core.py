@@ -1034,6 +1034,27 @@ def _make_world_writable(path):
                 pass
 
 
+def create_venv(venv, log):
+    """.venv oluşturur. python3-venv (ensurepip) kurulu değilse pip'siz bir
+    sanal ortam açıp sistemdeki pip ile içine pip kurar; böylece sisteme
+    paket kurmak gerekmez."""
+    log("\n>>> Python sanal ortamı oluşturuluyor (.venv)\n")
+    if run_cmd(["python3", "-m", "venv", "--system-site-packages", venv], log) == 0 and \
+            os.path.isfile(os.path.join(venv, "bin", "pip")):
+        return True
+    log(">>> ensurepip yok; pip'siz sanal ortam + sistem pip'i kullanılıyor\n")
+    shutil.rmtree(venv, ignore_errors=True)
+    if run_cmd(["python3", "-m", "venv", "--without-pip", "--system-site-packages", venv],
+               log) != 0:
+        log("HATA: Sanal ortam oluşturulamadı.\n")
+        return False
+    if run_cmd(["python3", "-m", "pip", "--python", os.path.join(venv, "bin", "python"),
+                "install", "--ignore-installed", "pip", "setuptools", "wheel"], log) != 0:
+        log("HATA: Sanal ortama pip kurulamadı (python3-pip kurulu mu?).\n")
+        return False
+    return os.path.isfile(os.path.join(venv, "bin", "pip"))
+
+
 def install_python_deps(real_dir, log):
     """requirements.txt / setup.py / pyproject.toml varsa .venv sanal ortamı
     kurar. Başarılıysa True, sorun olduysa False döndürür."""
@@ -1045,11 +1066,8 @@ def install_python_deps(real_dir, log):
         return True
     venv = os.path.join(real_dir, ".venv")
     ok = True
-    if not os.path.isfile(os.path.join(venv, "bin", "python")):
-        log("\n>>> Python sanal ortamı oluşturuluyor (.venv)\n")
-        if run_cmd(["python3", "-m", "venv", "--system-site-packages", venv], log) != 0:
-            log("HATA: Sanal ortam oluşturulamadı. 'sudo apt install python3-venv' "
-                "ile paketi kurup tekrar deneyin.\n")
+    if not os.path.isfile(os.path.join(venv, "bin", "pip")):
+        if not create_venv(venv, log):
             return False
     pip = os.path.join(venv, "bin", "pip")
     run_cmd([pip, "install", "--upgrade", "pip", "setuptools", "wheel"], log)
@@ -1066,7 +1084,7 @@ def install_python_deps(real_dir, log):
     return ok
 
 
-def install_other_deps(real_dir, command, log):
+def install_other_deps(real_dir, command, log, auto_build=True):
     ok = True
     if os.path.isfile(os.path.join(real_dir, "Gemfile")) and shutil.which("bundle"):
         log("\n>>> Ruby bağımlılıkları kuruluyor (bundle install)\n")
@@ -1074,7 +1092,7 @@ def install_other_deps(real_dir, command, log):
     if os.path.isfile(os.path.join(real_dir, "package.json")) and shutil.which("npm"):
         log("\n>>> Node.js bağımlılıkları kuruluyor (npm install)\n")
         ok &= run_cmd(["npm", "install"], log, cwd=real_dir) == 0
-    if os.path.isfile(os.path.join(real_dir, "go.mod")):
+    if auto_build and os.path.isfile(os.path.join(real_dir, "go.mod")):
         if shutil.which("go"):
             log("\n>>> Go projesi derleniyor\n")
             ok &= run_cmd(["go", "build", "-o", command, "."], log, cwd=real_dir) == 0
@@ -1193,7 +1211,8 @@ def install_git(url, tool_id, command, log, build=None):
         shutil.rmtree(real, ignore_errors=True)
         raise OmyError("Depo indirilemedi. Adresi ve internet bağlantısını kontrol edin.")
     ok = install_python_deps(real, log)
-    ok = install_other_deps(real, command, log) and ok
+    # Özel derleme komutu verilmişse otomatik "go build" denenmez
+    ok = install_other_deps(real, command, log, auto_build=not build) and ok
     ok = run_build(real, build, log) and ok
     _make_world_writable(real)
     return {"dir": tdir, "deps_ok": ok}

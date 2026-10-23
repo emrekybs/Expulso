@@ -164,7 +164,27 @@ def _git(root, args, log, capture=False):
     return core.run_cmd(argv, log), ""
 
 
-def update_git(root, log):
+_BROKEN_MARKERS = ("Traceback (most recent call last)", "ModuleNotFoundError", "ImportError",
+                   "SyntaxError", "No such file or directory")
+
+
+def smoke_test(cmd):
+    """Aracı yardım parametresiyle kısa süre çalıştırır. Python/dosya hatası
+    görülürse False döner (zaman aşımı ya da etkileşimli bekleme sorun sayılmaz)."""
+    if not cmd:
+        return True
+    try:
+        r = subprocess.run(cmd + ["-h"], capture_output=True, text=True, timeout=40,
+                           stdin=subprocess.DEVNULL, env=dict(os.environ, TERM="dumb"))
+        out = (r.stdout or "") + (r.stderr or "")
+    except subprocess.TimeoutExpired:
+        return True
+    except OSError:
+        return False
+    return not any(m in out for m in _BROKEN_MARKERS)
+
+
+def update_git(root, log, test_cmd=None):
     rc, before = _git(root, ["rev-parse", "HEAD"], log, capture=True)
     if rc != 0:
         log("  ! git deposu okunamadı, atlandı.\n")
@@ -179,6 +199,13 @@ def update_git(root, log):
     _rc, after = _git(root, ["rev-parse", "HEAD"], log, capture=True)
     if after == before:
         return "zaten güncel"
+    # Güncel sürüm çalışmıyorsa (ör. yeni bağımlılık istiyorsa) eski sürüme dön
+    if test_cmd and not smoke_test(test_cmd) and _was_working(root, before, test_cmd, log):
+        _git(root, ["reset", "-q", "--hard", before], log)
+        log("  ! Yeni sürüm bu sistemde çalışmadı; eski sürüme geri dönüldü.\n")
+        _log_line("git %s  %s -> %s denendi, çalışmadığı için geri alındı"
+                  % (root, before[:12], after[:12]))
+        return "yeni sürüm çalışmadı, eski sürümde bırakıldı"
     _log_line("git %s  %s -> %s   (geri almak için: git -C %s reset --hard %s)"
               % (root, before[:12], after[:12], shlex.quote(root), before[:12]))
     _rc, changed = _git(root, ["diff", "--name-only", before, after], log, capture=True)
@@ -192,6 +219,15 @@ def update_git(root, log):
         core.run_cmd(_as_owner(root, [venv_pip, "install", "-r",
                                       os.path.join(root, "requirements.txt")]), log)
     return "güncellendi (%s → %s)" % (before[:7], after[:7])
+
+
+def _was_working(root, before, test_cmd, log):
+    """Eski sürüm çalışıyor muydu? (Zaten bozuksa geri dönmenin anlamı yok.)"""
+    _rc, now = _git(root, ["rev-parse", "HEAD"], log, capture=True)
+    _git(root, ["reset", "-q", "--hard", before], log)
+    ok = smoke_test(test_cmd)
+    _git(root, ["reset", "-q", "--hard", now], log)
+    return ok
 
 
 def update_pipx(pipx_home, package, log):
@@ -252,7 +288,8 @@ def run(menu_specs, log, find_menu):
     for e in entries:
         de = xdgmenu.load_entry(e["file"]) if e.get("file") else None
         exec_line = de.get("Exec") if de else ""
-        kinds = [classify(p) for p in exec_candidates(exec_line)]
+        cands = exec_candidates(exec_line)
+        kinds = [classify(p) for p in cands]
         kind = next((k for k in kinds if k[0] in ("git", "pipx")), None) or \
             next((k for k in kinds if k[0] == "apt"), None) or (None, None)
         key = (kind[0], str(kind[1]))
@@ -262,7 +299,8 @@ def run(menu_specs, log, find_menu):
         log("\n--- %s ---\n" % e["title"])
         if kind[0] == "git":
             log("  GitHub deposu: %s\n" % kind[1])
-            status = update_git(kind[1], log)
+            test = [next((p for p in cands if classify(p) == kind), cands[0])] if cands else None
+            status = update_git(kind[1], log, test)
         elif kind[0] == "pipx":
             log("  pipx paketi: %s\n" % kind[1][1])
             status = update_pipx(kind[1][0], kind[1][1], log)
