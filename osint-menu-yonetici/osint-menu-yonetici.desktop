@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=OSINT Menü Yöneticisi
+GenericName=Menü ve Araç Yöneticisi
+Comment=GitHub, pipx ve APT araçlarını kurup menüde istediğiniz kategoriye ekleyin
+Exec=osint-menu-yonetici
+Icon=preferences-desktop-menu
+Terminal=false
+Categories=Settings;System;
+Keywords=osint;menu;menü;kategori;araç;github;pipx;
+StartupNotify=true

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# OSINT Menü Yöneticisi başlatıcısı.
+# Sistem menüsünü düzenlediği için gerekirse kendini root yetkisiyle
+# (pkexec ya da sudo) yeniden başlatır; masaüstü temasını da aktarır.
+
+APP_DIR="/usr/share/osint-menu-yonetici/app"
+if [ ! -f "$APP_DIR/osint_menu_yonetici.py" ]; then
+    # Kurulmadan, depo klasöründen çalıştırılıyorsa
+    APP_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+fi
+MAIN="$APP_DIR/osint_menu_yonetici.py"
+
+needs_root=1
+case "${1:-}" in
+    -h|--help|--yardim|--yardım|-v|--version|--surum|--sürüm|--liste|--list) needs_root=0 ;;
+esac
+
+if [ "$(id -u)" -eq 0 ] || [ "$needs_root" -eq 0 ]; then
+    exec /usr/bin/python3 "$MAIN" "$@"
+fi
+
+envs=(
+    "DISPLAY=${DISPLAY:-}"
+    "XAUTHORITY=${XAUTHORITY:-$HOME/.Xauthority}"
+    "OMY_REAL_USER=$(id -un)"
+    "OMY_REAL_HOME=$HOME"
+    "XDG_MENU_PREFIX=${XDG_MENU_PREFIX:-xfce-}"
+    "LANG=${LANG:-tr_TR.UTF-8}"
+)
+[ -n "${XDG_CONFIG_HOME:-}" ] && envs+=("XDG_CONFIG_HOME=$XDG_CONFIG_HOME")
+[ -n "${XDG_DATA_HOME:-}" ] && envs+=("XDG_DATA_HOME=$XDG_DATA_HOME")
+[ -n "${XDG_DATA_DIRS:-}" ] && envs+=("XDG_DATA_DIRS=$XDG_DATA_DIRS")
+[ -n "${XDG_CONFIG_DIRS:-}" ] && envs+=("XDG_CONFIG_DIRS=$XDG_CONFIG_DIRS")
+[ -n "${WAYLAND_DISPLAY:-}" ] && envs+=("WAYLAND_DISPLAY=$WAYLAND_DISPLAY")
+[ -n "${XDG_RUNTIME_DIR:-}" ] && envs+=("XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR")
+[ -n "${PATH:-}" ] && envs+=("PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin")
+
+# Kullanıcının GTK ve simge temasını (ör. Kali-Dark) root penceresine de uygula
+if command -v xfconf-query >/dev/null 2>&1; then
+    theme="$(xfconf-query -c xsettings -p /Net/ThemeName 2>/dev/null)"
+    icons="$(xfconf-query -c xsettings -p /Net/IconThemeName 2>/dev/null)"
+    [ -n "$theme" ] && envs+=("GTK_THEME=$theme")
+    [ -n "$icons" ] && envs+=("OMY_ICON_THEME=$icons")
+fi
+
+if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v pkexec >/dev/null 2>&1; then
+    exec pkexec /usr/bin/env "${envs[@]}" /usr/bin/python3 "$MAIN" "$@"
+fi
+exec sudo /usr/bin/env "${envs[@]}" /usr/bin/python3 "$MAIN" "$@"

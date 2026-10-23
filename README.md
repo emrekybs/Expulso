@@ -13,3 +13,9 @@ This tool is particularly useful for cybersecurity professionals, network admini
 * python ExPuLso.py
 
 <img src="https://github.com/emrekybs/Expulso/blob/master/my.png">
+
+## OSINT Menü Yöneticisi
+
+`osint-menu-yonetici/` klasöründe, Kali tabanlı OSINT dağıtımınızın menüsünü grafik arayüzle düzenlemek için bir araç var. GitHub araçlarını kurup terminal komutu haline getirir, menüde kategori oluşturmanıza ve araçları sürükle-bırak ile yerleştirmenize izin verir. Ayrıntılar: [osint-menu-yonetici/README.md](osint-menu-yonetici/README.md)
+
+* cd Expulso/osint-menu-yonetici && sudo ./install.sh
