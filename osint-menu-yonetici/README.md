@@ -15,6 +15,15 @@ istediğiniz kategoriye koyar ve **terminalde adını yazınca çalışır** hal
   ya da var olan bir kategorinin içine (alt kategori) ekleyin.
 - **Sürükle-bırak:** Eklediğiniz araçları ve kategorileri ağaçta sürükleyip başka bir
   kategoriye bırakın. Değişiklik menüye hemen yansır.
+- **Simgeler:** 44 hazır OSINT simgesi (e-posta, telefon, kullanıcı adı, sosyal medya,
+  dark web, kripto, harita, IP, DNS…) içeren bir galeri. Galeriden sistem/Kali simge
+  temasındaki simgeleri (ör. `kali-sherlock`) de seçebilir ya da kendi PNG/SVG dosyanızı
+  yükleyebilirsiniz.
+- **Hazır kategoriler:** “OSINT Sosyal Medya”, “OSINT Dark Web”, “OSINT Kripto Para” gibi
+  21 kategoriyi simgeleriyle birlikte tek tıkla oluşturabilirsiniz.
+- **Var olan kategori ve uygulamaları özelleştirme:** Menünüzde zaten olan “OSINT email”
+  gibi kategorilerin ya da uygulamaların adını ve simgesini değiştirebilirsiniz. Özgün dosya
+  bozulmaz, istediğiniz zaman “Varsayılana döndür” ile geri alınabilir.
 - Düzenle, sil, güncelle (`git pull` / `pipx upgrade` / `apt`), **Dene** (menüden açılmış
   gibi çalıştır), arama.
 
@@ -73,7 +82,40 @@ parametrelerle (varsayılan `-h`) çalışır ve terminal açık kalır.
 - `Uygulama Menüsü (en üst)` → solda Recon, OSINT gibi ana kategorilerin yanında görünür.
 - `OSINT` → OSINT'in içinde “OSINT email” gibi alt kategori olur.
 
+“Hazır şablon” listesinden bir OSINT kategorisi seçerseniz ad, simge ve açıklama kendiliğinden
+dolar. Birden fazla kategoriyi bir kerede oluşturmak için araç çubuğundaki
+**Hazır Kategoriler** düğmesini kullanın: istediklerinizi işaretleyip
+**Seçilenleri Oluştur**'a basmanız yeterli. O konumda aynı adda bir kategori zaten varsa
+listede pasif görünür.
+
 XFCE boş kategorileri menüde göstermez; içine bir araç eklediğiniz anda görünür.
+
+### Simge seçmek
+
+Araç ya da kategori penceresinde **Simge seç…** düğmesi (ya da simgenin kendisi) galeriyi
+açar:
+
+- **Hazır OSINT Simgeleri:** Pakette gelen renkli simgeler. Arama kutusuna `posta`,
+  `telefon`, `dark`, `kripto` gibi bir kelime yazıp süzebilirsiniz.
+- **Sistem / Kali Simgeleri:** Yüklü simge temasındaki bütün simgeler. Kali araç
+  simgeleri `kali-` ile başlar (ör. `kali-sherlock`, `kali-maltego`).
+- **Dosyadan seç…:** Kendi PNG/SVG/XPM dosyanız. Dosya sisteme kopyalanır, yani ISO'ya da
+  girer.
+
+Simge seçmeden bir araç eklerseniz, Kali temasında aracın adına uygun bir simge varsa
+(ör. `kali-holehe`) o kullanılır, yoksa terminal simgesi gösterilir.
+
+### Var olan kategori ve uygulamaların ad/simgesini değiştirmek
+
+Ağaçta gri görünen bir uygulamayı ya da “OSINT email” gibi sistemdeki bir kategoriyi seçip
+**Düzenle**'ye basın (sağ tık ▸ “Adını / simgesini değiştir…”). Ad ve simgeyi değiştirip
+**Kaydet**'e basın. Değiştirilen öğeler “(özelleştirildi)” olarak işaretlenir. Aynı
+pencerede **Varsayılana döndür** ile özgün haline geri döner.
+
+Nasıl çalışıyor: `/usr/share` altındaki dosyalar değiştirilmez. Onların yerine
+`/usr/local/share` altına öncelikli bir kopya yazılır (paket güncellemeleri bu değişikliği
+bozmaz). Kullanıcı klasörünüzdeki (`~/.local/share`) dosyalar ise yerinde değiştirilir ve
+özgün halleri `.omy-yedek` uzantısıyla saklanır.
 
 ### Sürükle-bırak
 
@@ -97,7 +139,9 @@ Her şey sistem klasörlerine yazıldığı için ISO'ya otomatik olarak dahil o
 | Terminal komutları | `/usr/local/bin/<komut>` |
 | GitHub/yerel araçlar | `/opt/osint-tools/<araç>` |
 | pipx araçları | `/opt/pipx` |
-| Simgeler | `/usr/share/osint-menu-yonetici/icons` |
+| Hazır simge paketi | `/usr/share/osint-menu-yonetici/simgeler` |
+| Kendi yüklediğiniz simgeler | `/usr/share/osint-menu-yonetici/icons` |
+| Sistem öğelerinde yapılan ad/simge değişiklikleri | `/usr/local/share/applications`, `/usr/local/share/desktop-directories` |
 
 İpuçları:
 
@@ -123,7 +167,7 @@ Her şey sistem klasörlerine yazıldığı için ISO'ya otomatik olarak dahil o
 
 ```bash
 sudo ./uninstall.sh          # yalnızca uygulamayı kaldırır, eklediğiniz araçlar kalır
-sudo ./uninstall.sh --hepsi  # eklediğiniz menü kayıtlarını ve komutları da kaldırır
+sudo ./uninstall.sh --hepsi  # eklediklerinizi kaldırır, ad/simge değişikliklerini geri alır
 ```
 
 ## Geliştirici notları
@@ -134,3 +178,6 @@ xvfb-run -a python3 tests/gui_smoke.py /tmp/ekran         # arayüz testi + ekra
 ```
 
 Testler `OMY_ROOT` ile sahte bir kök dizinde çalışır, sisteminize dokunmaz.
+
+Simge paketine yeni simge eklemek için `tools/simge_uret.py` içindeki `GLYPHS` ve `ICONS`
+listelerine bir satır ekleyip `python3 tools/simge_uret.py` çalıştırın.

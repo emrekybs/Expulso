@@ -83,8 +83,66 @@ def main():
         return False
 
     def step4(cdlg):
+        cdlg.preset_combo.set_active(11)
+        if not cdlg.icon_picker.get().endswith("osint-dark-web.svg"):
+            errors.append("şablon simgesi gelmedi: %r" % cdlg.icon_picker.get())
+        GLib.timeout_add(300, step4b, cdlg)
+        return False
+
+    def step4b(cdlg):
         shot(cdlg, "4-kategori.png")
         cdlg.destroy()
+        icd = gui.IconChooserDialog(win, "")
+        icd.search.set_text("posta")
+        GLib.timeout_add(500, step4c, icd)
+        return False
+
+    def step4c(icd):
+        if len(icd.pack_filter) < 1:
+            errors.append("simge araması sonuç vermedi")
+        icd.pack_view.select_path(Gtk.TreePath(0))
+        shot(icd, "6-simge-galerisi.png")
+        icd.search.set_text("")
+        icd.notebook.set_current_page(1)
+        GLib.timeout_add(600, step4d, icd)
+        return False
+
+    def step4d(icd):
+        shot(icd, "7-sistem-simgeleri.png")
+        icd.destroy()
+        pdlg = gui.PresetsDialog(win, win.menus, ["osint"], lambda p: {"osint email"})
+        GLib.timeout_add(500, step4e, pdlg)
+        return False
+
+    def step4e(pdlg):
+        pdlg.checks[0][0].set_active(True)
+        pdlg.checks[10][0].set_active(True)
+        shot(pdlg, "8-hazir-kategoriler.png")
+        parent, chosen = pdlg.values()
+        if parent != ["osint"] or len(chosen) != 2:
+            errors.append("hazır kategori seçimi hatalı: %r %r" % (parent, chosen))
+        pdlg.destroy()
+        # Sistem kategorisinin simgesini değiştir
+        email = fx.find(win.scan, ["osint", "osint-email"])
+        core.set_override(win.state, "directory", "osint-email.directory", email.file,
+                          "", core.pack_icon("osint-eposta"))
+        for name, icon, comment in [c for c in core.CATEGORY_PRESETS if c[0] in
+                                    ("OSINT Kripto Para", "OSINT Kullanıcı Adı")]:
+            win.state["categories"].append({"id": core.new_category_id(win.state, name),
+                                            "name": name, "comment": comment,
+                                            "icon": core.pack_icon(icon), "parent": ["osint"]})
+        win.commit("ok")
+        win.search.set_text("")
+        GLib.timeout_add(400, step4f)
+        return False
+
+    def step4f():
+        win.tree.expand_all()
+        GLib.timeout_add(400, step4g)
+        return False
+
+    def step4g():
+        shot(win, "9-simgeli-menu.png")
         win.search.set_text("dark")
         GLib.timeout_add(600, step5)
         return False

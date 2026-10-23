@@ -24,6 +24,9 @@ rm -rf "$APP"
 mkdir -p "$APP/omy"
 install -m 644 "$SRC"/omy/*.py "$APP/omy/"
 install -m 755 "$SRC/osint_menu_yonetici.py" "$APP/"
+rm -rf /usr/share/osint-menu-yonetici/simgeler
+mkdir -p /usr/share/osint-menu-yonetici/simgeler
+install -m 644 "$SRC"/simgeler/* /usr/share/osint-menu-yonetici/simgeler/
 install -m 755 "$SRC/osint-menu-yonetici" /usr/local/bin/osint-menu-yonetici
 install -m 644 "$SRC/osint-menu-yonetici.desktop" /usr/share/applications/osint-menu-yonetici.desktop
 mkdir -p /opt/osint-tools /etc/osint-menu-yonetici /etc/xdg/menus/applications-merged

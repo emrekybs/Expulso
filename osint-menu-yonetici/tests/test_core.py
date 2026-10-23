@@ -16,7 +16,8 @@ import unittest
 ROOT = tempfile.mkdtemp(prefix="omy-test-")
 os.environ["OMY_ROOT"] = ROOT
 os.environ["XDG_CONFIG_DIRS"] = os.path.join(ROOT, "etc/xdg")
-os.environ["XDG_DATA_DIRS"] = os.path.join(ROOT, "usr/share")
+os.environ["XDG_DATA_DIRS"] = "%s:%s" % (os.path.join(ROOT, "usr/local/share"),
+                                         os.path.join(ROOT, "usr/share"))
 os.environ["XDG_CONFIG_HOME"] = os.path.join(ROOT, "home/.config")
 os.environ["XDG_DATA_HOME"] = os.path.join(ROOT, "home/.local/share")
 os.environ["XDG_MENU_PREFIX"] = "xfce-"
@@ -231,6 +232,59 @@ class CoreTests(unittest.TestCase):
         ok, argv = GLib.shell_parse_argv(exec_line.replace("%%", "%"))
         self.assertEqual(argv, [core.RUNNER, "x", "--q", '$HOME "a"', "100%"])
         self.assertEqual(kf.get_string("Desktop Entry", "Name"), tool["name"])
+
+    def test_icon_pack_and_presets(self):
+        pack = core.load_icon_pack()
+        self.assertGreater(len(pack), 30)
+        for icon in pack:
+            self.assertTrue(os.path.isfile(icon["real"]), icon)
+        for name, icon, _comment in core.CATEGORY_PRESETS:
+            self.assertTrue(core.pack_icon(icon), icon)
+
+    def test_overrides(self):
+        state = core.load_state()
+        tree = core.scan_menu()
+        email = find(tree, ["osint", "osint-email"])
+        holehe = email.entries[0]
+        icon = core.pack_icon("osint-eposta")
+        core.set_override(state, "directory", os.path.basename(email.file), email.file,
+                          "E-posta Araçları", icon)
+        core.set_override(state, "app", holehe["id"], holehe["file"], "", "kali-holehe")
+        self.assertEqual(core.apply(state), [])
+        # /usr/share dosyaları değişmemeli, /usr/local/share altına kopya yazılmalı
+        with open(os.path.join(ROOT, "usr/share/desktop-directories/osint-email.directory")) as f:
+            self.assertIn("Name=OSINT email", f.read())
+        tree = core.scan_menu()
+        email = find(tree, ["osint", "osint-email"])
+        self.assertEqual(email.title, "E-posta Araçları")
+        self.assertEqual(email.icon, icon)
+        h = [e for e in email.entries if e["id"] == "holehe.desktop"][0]
+        self.assertEqual((h["title"], h["icon"]), ("Holehe", "kali-holehe"))
+
+        # Kullanıcı klasöründeki dosya yerinde değişir, yedeği alınır
+        user_dir = os.path.join(ROOT, "home/.local/share/desktop-directories")
+        write("home/.local/share/desktop-directories/osint.directory",
+              "[Desktop Entry]\nType=Directory\nName=OSINT\nName[tr]=OSINT TR\nIcon=user\n")
+        tree = core.scan_menu()
+        osint = find(tree, ["osint"])
+        self.assertTrue(osint.file.startswith(user_dir))
+        core.set_override(state, "directory", "osint.directory", osint.file, "OSINT Ana", "")
+        core.apply(state)
+        self.assertEqual(find(core.scan_menu(), ["osint"]).title, "OSINT Ana")
+        self.assertTrue(os.path.exists(os.path.join(user_dir, "osint.directory.omy-yedek")))
+
+        # Geri al
+        for ov in list(state["overrides"]):
+            core.remove_override(state, ov)
+        core.apply(state)
+        tree = core.scan_menu()
+        self.assertEqual(find(tree, ["osint"]).title, "OSINT TR" if os.environ.get(
+            "LANG", "").startswith("tr") else "OSINT")
+        self.assertEqual(find(tree, ["osint", "osint-email"]).title, "OSINT email")
+        self.assertFalse(os.path.exists(os.path.join(user_dir, "osint.directory.omy-yedek")))
+        self.assertFalse(os.path.exists(os.path.join(
+            ROOT, "usr/local/share/desktop-directories/osint-email.directory")))
+        os.unlink(os.path.join(user_dir, "osint.directory"))
 
 
 if __name__ == "__main__":

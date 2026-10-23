@@ -40,6 +40,35 @@ BIN_DIR = "/usr/local/bin"
 TOOLS_DIR = "/opt/osint-tools"
 RUNNER = "/usr/local/lib/osint-menu-yonetici/terminal-calistir"
 PIPX_HOME = "/opt/pipx"
+PACK_DIR = "/usr/share/osint-menu-yonetici/simgeler"
+OVERRIDE_BASE = "/usr/local/share"
+_REPO_PACK_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                              "simgeler")
+
+# Hazır OSINT kategorileri: (ad, paket simgesi, açıklama)
+CATEGORY_PRESETS = [
+    ("OSINT Sosyal Medya", "osint-sosyal-medya", "Sosyal medya hesap ve gönderi araştırması"),
+    ("OSINT E-posta", "osint-eposta", "E-posta adresi araştırması"),
+    ("OSINT Telefon Numarası", "osint-telefon", "Telefon numarası araştırması"),
+    ("OSINT Kullanıcı Adı", "osint-kullanici", "Kullanıcı adı araştırması"),
+    ("OSINT Kişi Arama", "osint-kisi-arama", "Kişi ve kimlik araştırması"),
+    ("OSINT Alan Adı & Web", "osint-alan-adi", "Alan adı, whois ve web sitesi analizi"),
+    ("OSINT IP & Ağ", "osint-ip-adresi", "IP adresi ve ağ araştırması"),
+    ("OSINT DNS & Alt Alan Adı", "osint-dns", "DNS kayıtları ve alt alan adları"),
+    ("OSINT Görsel & Video", "osint-resim", "Görsel, video ve EXIF analizi"),
+    ("OSINT Konum & Harita", "osint-konum", "Konum ve harita (GEOINT) araçları"),
+    ("OSINT Dark Web", "osint-dark-web", "Tor ve dark web araştırması"),
+    ("OSINT Kripto Para", "osint-kripto", "Kripto cüzdan ve blokzincir araştırması"),
+    ("OSINT Veri Sızıntıları", "osint-sizinti", "Sızdırılmış veri ve parola kontrolü"),
+    ("OSINT Şirket & Kurum", "osint-sirket", "Şirket ve kurum araştırması"),
+    ("OSINT Belge & Metadata", "osint-belge", "Belge ve metadata analizi"),
+    ("OSINT Web Arşivi", "osint-arsiv", "Web arşivi ve geçmiş kayıtlar"),
+    ("OSINT Mesajlaşma", "osint-sohbet", "Telegram, WhatsApp ve sohbet araçları"),
+    ("OSINT Kamera & CCTV", "osint-kamera", "Açık kamera ve IoT araştırması"),
+    ("OSINT Uçuş & Gemi Takibi", "osint-ucak", "Uçuş ve gemi takibi"),
+    ("Recon", "osint-hedef", "Keşif ve tarama araçları"),
+    ("Raporlama", "osint-rapor", "Raporlama ve not alma araçları"),
+]
 
 SOURCE_TYPES = ("git", "local", "pipx", "apt", "existing")
 SOURCES_WITH_WRAPPER = ("git", "local")
@@ -126,7 +155,7 @@ def name_from_source(source_type, value):
 # Durum (state.json)
 
 def empty_state():
-    return {"version": 1, "categories": [], "tools": []}
+    return {"version": 1, "categories": [], "tools": [], "overrides": []}
 
 
 def load_state():
@@ -141,6 +170,7 @@ def load_state():
     state.setdefault("version", 1)
     state.setdefault("categories", [])
     state.setdefault("tools", [])
+    state.setdefault("overrides", [])
     return state
 
 
@@ -512,6 +542,7 @@ def apply(state):
             warnings.append(str(e))
 
     _write_file(sys_path(MERGE_FILE), build_menu_xml(state))
+    apply_overrides(state, warnings)
 
     # Artık kullanılmayan eski dosyaları temizle (yalnızca bizim dosyalarımız).
     for d, wanted, suffix in ((APPS_DIR, wanted_desktop, ".desktop"),
@@ -533,11 +564,48 @@ def apply(state):
     return warnings
 
 
+def pack_dir():
+    """Hazır simge paketinin bulunduğu (gerçek) klasör."""
+    real = sys_path(PACK_DIR)
+    return real if os.path.isdir(real) else _REPO_PACK_DIR
+
+
+def load_icon_pack():
+    """Hazır OSINT simgelerini [{"path", "label", "keywords"}] olarak döndürür.
+    path, menü dosyalarına yazılacak gerçek yoldur."""
+    d = pack_dir()
+    try:
+        with open(os.path.join(d, "liste.json"), encoding="utf-8") as f:
+            meta = json.load(f)
+    except (OSError, ValueError):
+        return []
+    installed = d != _REPO_PACK_DIR
+    result = []
+    for m in meta:
+        real = os.path.join(d, m["file"])
+        if os.path.isfile(real):
+            result.append({"path": os.path.join(PACK_DIR, m["file"]) if installed else real,
+                           "real": real, "label": m["label"],
+                           "keywords": m.get("keywords", "")})
+    return result
+
+
+def pack_icon(name):
+    """Paketteki simgenin yolunu döndürür (ör. "osint-eposta")."""
+    for icon in load_icon_pack():
+        if os.path.splitext(os.path.basename(icon["path"]))[0] == name:
+            return icon["path"]
+    return ""
+
+
 def store_icon(icon, tool_or_cat_id):
     """Simge bir dosyaysa sistem simge klasörüne kopyalar ve yeni yolu
-    döndürür; simge adıysa olduğu gibi döndürür."""
+    döndürür; simge adıysa olduğu gibi döndürür. Kurulu simge paketindeki
+    simgeler kopyalanmadan kullanılır."""
     icon = (icon or "").strip()
     if not icon or not os.path.isabs(icon):
+        return icon
+    if os.path.dirname(icon) == PACK_DIR:
         return icon
     real_icon_dir = sys_path(ICON_DIR)
     if os.path.dirname(sys_path(icon)) == real_icon_dir or \
@@ -564,12 +632,13 @@ def remove_icon(icon):
 # Menüyü okuma (pyxdg ile)
 
 class MenuNode:
-    def __init__(self, name, title, icon="", comment="", path=None):
+    def __init__(self, name, title, icon="", comment="", path=None, file=None):
         self.name = name
         self.title = title
         self.icon = icon or ""
         self.comment = comment or ""
         self.path = path or []
+        self.file = file          # .directory dosyasının tam yolu (varsa)
         self.children = []
         self.entries = []
 
@@ -643,7 +712,10 @@ def scan_menu():
         raise OmyError("Menü dosyası okunamadı (%s): %s" % (menu_file or "?", e))
 
     def convert(m, path):
-        node = MenuNode(m.Name, m.getName(), m.getIcon(), m.getComment(), path)
+        dir_file = None
+        if isinstance(m.Directory, xdg.Menu.MenuEntry):
+            dir_file = m.Directory.DesktopEntry.filename
+        node = MenuNode(m.Name, m.getName(), m.getIcon(), m.getComment(), path, dir_file)
         for e in m.getEntries(show_hidden=True):
             if isinstance(e, xdg.Menu.Menu):
                 if e.Show is True or e.Show == xdg.Menu.EMPTY:
@@ -655,6 +727,7 @@ def scan_menu():
                     "title": de.getName(),
                     "icon": de.getIcon(),
                     "comment": de.getComment(),
+                    "file": de.filename,
                 })
         return node
 
@@ -671,6 +744,150 @@ def collect_desktop_ids(node, out=None):
     for c in node.children:
         collect_desktop_ids(c, out)
     return out
+
+
+# --------------------------------------------------------------------------
+# Mevcut (sistemdeki) kategori ve uygulamaların ad/simgesini değiştirme
+#
+# /usr/share altındaki bir dosya için /usr/local/share altına aynı adlı bir
+# kopya yazılır (XDG'de önceliklidir, paket güncellemeleri de bozmaz).
+# Başka yerdeki dosyalar (ör. ~/.local/share) yerinde değiştirilir ve
+# özgün hali "<dosya>.omy-yedek" olarak saklanır.
+
+def unroot(path):
+    """sys_path'in tersi: OMY_ROOT önekini kaldırır."""
+    root = os.environ.get("OMY_ROOT", "/").rstrip("/")
+    if root and path.startswith(root + "/"):
+        return path[len(root):]
+    return path
+
+
+def override_kind_dir(kind):
+    return "desktop-directories" if kind == "directory" else "applications"
+
+
+def override_target(kind, orig):
+    """(hedef yol, yerinde_mi) döndürür. Yollar mantıksal (OMY_ROOT'suz)."""
+    sub = "/%s/" % override_kind_dir(kind)
+    idx = orig.find(sub)
+    if idx < 0:
+        return orig, True
+    base, rel = orig[:idx], orig[idx + len(sub):]
+    if base == "/usr/share":
+        return os.path.join(OVERRIDE_BASE, override_kind_dir(kind), rel), False
+    return orig, True
+
+
+def find_override(state, kind, ident):
+    for ov in state.get("overrides", []):
+        if ov["kind"] == kind and ov["id"] == ident:
+            return ov
+    return None
+
+
+def set_override(state, kind, ident, orig, name, icon):
+    """Mevcut bir kategori (kind="directory") ya da uygulamanın (kind="app")
+    adını/simgesini değiştirir. orig: dosyanın gerçek tam yolu."""
+    ov = find_override(state, kind, ident)
+    if ov is None:
+        logical = unroot(orig)
+        target, in_place = override_target(kind, logical)
+        if not os.path.isfile(sys_path(logical)):
+            raise OmyError("Dosya bulunamadı: %s" % logical)
+        ov = {"kind": kind, "id": ident, "orig": logical, "target": target,
+              "backup": (target + ".omy-yedek") if in_place else ""}
+        if ov["backup"] and not os.path.exists(sys_path(ov["backup"])):
+            shutil.copy2(sys_path(logical), sys_path(ov["backup"]))
+        state.setdefault("overrides", []).append(ov)
+    ov["name"] = name or ""
+    ov["icon"] = icon or ""
+    return ov
+
+
+def remove_override(state, ov):
+    """Özgün hale geri döndürür."""
+    target = sys_path(ov["target"])
+    if ov.get("backup"):
+        backup = sys_path(ov["backup"])
+        if os.path.isfile(backup):
+            shutil.copy2(backup, target)
+            os.unlink(backup)
+    elif _is_ours(target):
+        os.unlink(target)
+    state["overrides"].remove(ov)
+
+
+def modify_entry_text(text, name, icon):
+    """[Desktop Entry] grubundaki Name/Icon satırlarını değiştirir."""
+    out = []
+    group = None
+    done_name = done_icon = False
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if group == "[Desktop Entry]":
+                if name and not done_name:
+                    out.append("Name=%s" % kf_escape(name))
+                if icon and not done_icon:
+                    out.append("Icon=%s" % kf_escape(icon))
+                done_name = done_icon = True
+            group = stripped
+            out.append(line)
+            if group == "[Desktop Entry]":
+                out.append(MARKER)
+            continue
+        if group == "[Desktop Entry]" and "=" in line and not stripped.startswith("#"):
+            key = line.split("=", 1)[0].strip()
+            if name and (key == "Name" or key.startswith("Name[")):
+                if not done_name:
+                    out.append("Name=%s" % kf_escape(name))
+                    done_name = True
+                continue
+            if icon and key == "Icon":
+                out.append("Icon=%s" % kf_escape(icon))
+                done_icon = True
+                continue
+        if stripped == MARKER:
+            continue
+        out.append(line)
+    if group == "[Desktop Entry]":
+        if name and not done_name:
+            out.append("Name=%s" % kf_escape(name))
+        if icon and not done_icon:
+            out.append("Icon=%s" % kf_escape(icon))
+    return "\n".join(out) + "\n"
+
+
+def apply_overrides(state, warnings):
+    for ov in state.get("overrides", []):
+        source = sys_path(ov["backup"] or ov["orig"])
+        try:
+            with open(source, encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            warnings.append("Özgün dosya bulunamadı: %s" % (ov["backup"] or ov["orig"]))
+            continue
+        target = sys_path(ov["target"])
+        if not ov["backup"] and os.path.exists(target) and not _is_ours(target):
+            warnings.append("%s başka bir programa ait; değiştirilmedi." % ov["target"])
+            continue
+        _write_file(target, modify_entry_text(text, ov.get("name"), ov.get("icon")))
+
+
+def cleanup_all():
+    """Bu uygulamanın yaptığı bütün menü değişikliklerini geri alır
+    (indirilen araç klasörlerine dokunmaz)."""
+    state = load_state()
+    for ov in list(state.get("overrides", [])):
+        try:
+            remove_override(state, ov)
+        except OSError:
+            pass
+    apply(empty_state())
+    for p in (MERGE_FILE, RUNNER):
+        if os.path.exists(sys_path(p)):
+            os.unlink(sys_path(p))
 
 
 # --------------------------------------------------------------------------

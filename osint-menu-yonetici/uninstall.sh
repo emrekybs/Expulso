@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # OSINT Menü Yöneticisi'ni kaldırır.
 #   sudo ./uninstall.sh          -> yalnızca uygulamayı kaldırır, eklediğiniz araçlar menüde kalır
-#   sudo ./uninstall.sh --hepsi  -> eklediğiniz menü kayıtlarını ve komutları da kaldırır
+#   sudo ./uninstall.sh --hepsi  -> eklediğiniz menü kayıtlarını, komutları ve
+#                                   simge/ad değişikliklerini de geri alır
 #                                   (/opt/osint-tools ve /opt/pipx klasörlerine dokunulmaz)
 set -e
 
@@ -10,7 +11,10 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 if [ "${1:-}" = "--hepsi" ]; then
-    echo "[*] Menü kayıtları ve komutlar kaldırılıyor..."
+    echo "[*] Menü kayıtları, komutlar ve simge/ad değişiklikleri geri alınıyor..."
+    if [ -f /usr/share/osint-menu-yonetici/app/osint_menu_yonetici.py ]; then
+        /usr/bin/python3 /usr/share/osint-menu-yonetici/app/osint_menu_yonetici.py --temizle || true
+    fi
     rm -f /etc/xdg/menus/applications-merged/osint-menu-yonetici.menu
     for f in /usr/share/applications/omy-*.desktop /usr/share/desktop-directories/omy-*.directory \
              /usr/local/bin/*; do
@@ -20,7 +24,7 @@ if [ "${1:-}" = "--hepsi" ]; then
         fi
     done
     rm -rf /etc/osint-menu-yonetici /usr/local/lib/osint-menu-yonetici
-    rm -rf /usr/share/osint-menu-yonetici/icons
+    rm -rf /usr/share/osint-menu-yonetici/icons /usr/share/osint-menu-yonetici/simgeler
 fi
 
 rm -rf /usr/share/osint-menu-yonetici/app

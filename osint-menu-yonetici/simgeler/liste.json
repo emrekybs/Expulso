@@ -1,0 +1,222 @@
+[
+ {
+  "file": "osint-osint.svg",
+  "label": "OSINT",
+  "keywords": "genel osint istihbarat açık kaynak"
+ },
+ {
+  "file": "osint-arama.svg",
+  "label": "Arama",
+  "keywords": "search ara bul recon keşif"
+ },
+ {
+  "file": "osint-sosyal-medya.svg",
+  "label": "Sosyal Medya",
+  "keywords": "social media instagram twitter facebook"
+ },
+ {
+  "file": "osint-eposta.svg",
+  "label": "E-posta",
+  "keywords": "email mail posta"
+ },
+ {
+  "file": "osint-at-isareti.svg",
+  "label": "@ İşareti",
+  "keywords": "email kullanıcı adı username at"
+ },
+ {
+  "file": "osint-telefon.svg",
+  "label": "Telefon Numarası",
+  "keywords": "phone number gsm telefon"
+ },
+ {
+  "file": "osint-kullanici.svg",
+  "label": "Kullanıcı Adı",
+  "keywords": "username kullanıcı kişi"
+ },
+ {
+  "file": "osint-kisi-arama.svg",
+  "label": "Kişi Arama",
+  "keywords": "person people kişi arama"
+ },
+ {
+  "file": "osint-parmak-izi.svg",
+  "label": "Parmak İzi / Kimlik",
+  "keywords": "fingerprint kimlik identity"
+ },
+ {
+  "file": "osint-alan-adi.svg",
+  "label": "Alan Adı / Web",
+  "keywords": "domain website web alan adı whois"
+ },
+ {
+  "file": "osint-ip-adresi.svg",
+  "label": "IP Adresi",
+  "keywords": "ip adres network"
+ },
+ {
+  "file": "osint-dns.svg",
+  "label": "DNS / Sunucu",
+  "keywords": "dns server sunucu subdomain"
+ },
+ {
+  "file": "osint-ag.svg",
+  "label": "Ağ",
+  "keywords": "network ağ graph bağlantı"
+ },
+ {
+  "file": "osint-konum.svg",
+  "label": "Konum",
+  "keywords": "location geo konum gps"
+ },
+ {
+  "file": "osint-harita.svg",
+  "label": "Harita",
+  "keywords": "map harita geoint"
+ },
+ {
+  "file": "osint-resim.svg",
+  "label": "Görsel",
+  "keywords": "image photo görsel resim exif"
+ },
+ {
+  "file": "osint-kamera.svg",
+  "label": "Kamera / CCTV",
+  "keywords": "camera kamera cctv webcam"
+ },
+ {
+  "file": "osint-video.svg",
+  "label": "Video",
+  "keywords": "video youtube indir"
+ },
+ {
+  "file": "osint-dark-web.svg",
+  "label": "Dark Web / Tor",
+  "keywords": "dark web tor onion"
+ },
+ {
+  "file": "osint-kripto.svg",
+  "label": "Kripto Para",
+  "keywords": "crypto bitcoin kripto blockchain"
+ },
+ {
+  "file": "osint-sizinti.svg",
+  "label": "Veri Sızıntısı",
+  "keywords": "leak breach sızıntı veri"
+ },
+ {
+  "file": "osint-veritabani.svg",
+  "label": "Veritabanı",
+  "keywords": "database veritabanı db"
+ },
+ {
+  "file": "osint-parola.svg",
+  "label": "Parola / Anahtar",
+  "keywords": "password parola şifre key"
+ },
+ {
+  "file": "osint-kilit.svg",
+  "label": "Kilit / Güvenlik",
+  "keywords": "lock kilit güvenlik"
+ },
+ {
+  "file": "osint-kalkan.svg",
+  "label": "Kalkan / Savunma",
+  "keywords": "shield kalkan savunma defense"
+ },
+ {
+  "file": "osint-goz.svg",
+  "label": "Gözetleme",
+  "keywords": "eye göz izleme monitor"
+ },
+ {
+  "file": "osint-hedef.svg",
+  "label": "Hedef / Keşif",
+  "keywords": "target hedef recon keşif"
+ },
+ {
+  "file": "osint-radar.svg",
+  "label": "Radar / Tarama",
+  "keywords": "radar tarama scan"
+ },
+ {
+  "file": "osint-uydu.svg",
+  "label": "Uydu",
+  "keywords": "satellite uydu"
+ },
+ {
+  "file": "osint-wifi.svg",
+  "label": "Kablosuz Ağ",
+  "keywords": "wifi wireless kablosuz"
+ },
+ {
+  "file": "osint-ucak.svg",
+  "label": "Uçuş Takibi",
+  "keywords": "flight uçak plane uçuş"
+ },
+ {
+  "file": "osint-sirket.svg",
+  "label": "Şirket / Kurum",
+  "keywords": "company şirket kurum business"
+ },
+ {
+  "file": "osint-belge.svg",
+  "label": "Belge",
+  "keywords": "document belge pdf metadata"
+ },
+ {
+  "file": "osint-rapor.svg",
+  "label": "Raporlama",
+  "keywords": "report rapor grafik chart"
+ },
+ {
+  "file": "osint-arsiv.svg",
+  "label": "Web Arşivi",
+  "keywords": "archive arşiv wayback"
+ },
+ {
+  "file": "osint-bulut.svg",
+  "label": "Bulut",
+  "keywords": "cloud bulut"
+ },
+ {
+  "file": "osint-sohbet.svg",
+  "label": "Mesajlaşma",
+  "keywords": "chat telegram whatsapp mesaj"
+ },
+ {
+  "file": "osint-hashtag.svg",
+  "label": "Hashtag",
+  "keywords": "hashtag etiket twitter"
+ },
+ {
+  "file": "osint-kod.svg",
+  "label": "Kod / GitHub",
+  "keywords": "code github kod git"
+ },
+ {
+  "file": "osint-terminal.svg",
+  "label": "Terminal",
+  "keywords": "terminal komut cli"
+ },
+ {
+  "file": "osint-arac.svg",
+  "label": "Araç",
+  "keywords": "tool araç utility"
+ },
+ {
+  "file": "osint-bocek.svg",
+  "label": "Zafiyet",
+  "keywords": "bug zafiyet vulnerability"
+ },
+ {
+  "file": "osint-zaman.svg",
+  "label": "Zaman Çizelgesi",
+  "keywords": "time zaman timeline"
+ },
+ {
+  "file": "osint-yildiz.svg",
+  "label": "Favori",
+  "keywords": "star yıldız favori"
+ }
+]

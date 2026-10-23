@@ -9,7 +9,8 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, Gio, GLib, Gtk, Pango  # noqa: E402
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango  # noqa: E402
 
 from . import __version__, core  # noqa: E402
 
@@ -17,7 +18,7 @@ APP_TITLE = "OSINT Menü Yöneticisi"
 DND_TARGET = "OMY_ROW"
 
 # TreeStore sütunları
-C_KIND, C_IDENT, C_PATH, C_ICON, C_TITLE, C_DETAIL, C_FG, C_WEIGHT, C_TIP = range(9)
+C_KIND, C_IDENT, C_PATH, C_ICON, C_TITLE, C_DETAIL, C_FG, C_WEIGHT, C_TIP, C_FILE = range(10)
 
 KIND_ORDER = {"root": 0, "menu": 1, "cat": 1, "tool": 2, "sys": 2}
 
@@ -172,47 +173,235 @@ class TaskDialog(Gtk.Dialog):
 # --------------------------------------------------------------------------
 # Simge seçici
 
+def choose_image_file(parent):
+    dlg = Gtk.FileChooserDialog(title="Simge dosyası seç", transient_for=parent,
+                                action=Gtk.FileChooserAction.OPEN)
+    dlg.add_buttons("İptal", Gtk.ResponseType.CANCEL, "Seç", Gtk.ResponseType.OK)
+    flt = Gtk.FileFilter()
+    flt.set_name("Resimler (png, svg, xpm, jpg, ico)")
+    for pat in ("*.png", "*.svg", "*.xpm", "*.jpg", "*.jpeg", "*.ico"):
+        flt.add_pattern(pat)
+        flt.add_pattern(pat.upper())
+    dlg.add_filter(flt)
+    home = os.environ.get("OMY_REAL_HOME")
+    if home and os.path.isdir(home):
+        dlg.set_current_folder(home)
+    elif os.path.isdir("/usr/share/pixmaps"):
+        dlg.set_current_folder("/usr/share/pixmaps")
+    path = dlg.get_filename() if dlg.run() == Gtk.ResponseType.OK else None
+    dlg.destroy()
+    return path
+
+
+class IconChooserDialog(Gtk.Dialog):
+    """Hazır OSINT simgeleri, sistem/Kali simge teması ve dosyadan seçim."""
+
+    SYSTEM_LIMIT = 600
+    RESP_FILE = 1
+
+    def __init__(self, parent, current=""):
+        super().__init__(title="Simge Seç", transient_for=parent, modal=True)
+        self.set_default_size(760, 560)
+        self.add_button("Dosyadan seç…", self.RESP_FILE)
+        self.add_buttons("İptal", Gtk.ResponseType.CANCEL, "Seç", Gtk.ResponseType.OK)
+        self.set_default_response(Gtk.ResponseType.OK)
+        self.result = None
+        box = self.get_content_area()
+        box.set_border_width(10)
+        box.set_spacing(8)
+
+        self.search = Gtk.SearchEntry()
+        self.search.set_placeholder_text("Simge ara… (ör. mail, telefon, kali-, harita)")
+        self.search.connect("search-changed", lambda *_a: self._refilter())
+        box.pack_start(self.search, False, False, 0)
+
+        self.notebook = Gtk.Notebook()
+        box.pack_start(self.notebook, True, True, 0)
+
+        # Hazır OSINT simgeleri
+        self.pack_store = Gtk.ListStore(GdkPixbuf.Pixbuf, str, str, str)  # simge, ad, yol, arama
+        self.pack_filter = self.pack_store.filter_new()
+        self.pack_filter.set_visible_func(self._pack_visible)
+        self.pack_view = self._make_view(self.pack_filter, pixbuf_col=0, text_col=1)
+        for icon in core.load_icon_pack():
+            try:
+                pb = GdkPixbuf.Pixbuf.new_from_file_at_size(icon["real"], 48, 48)
+            except GLib.Error:
+                continue
+            self.pack_store.append([pb, icon["label"], icon["path"],
+                                    ("%s %s %s" % (icon["label"], icon["keywords"],
+                                                   os.path.basename(icon["path"]))).casefold()])
+        self._add_page(self.pack_view, "Hazır OSINT Simgeleri")
+
+        # Sistem / Kali simgeleri
+        theme = Gtk.IconTheme.get_default()
+        names = [n for n in theme.list_icons(None) if not n.endswith("-symbolic")]
+        apps = set(theme.list_icons("Applications") or []) | set(theme.list_icons("Places") or [])
+        self.all_icons = sorted(names, key=lambda n: (not n.startswith("kali"), n not in apps, n))
+        self.sys_store = Gtk.ListStore(str, str)
+        self.sys_view = self._make_view(self.sys_store, icon_name_col=0, text_col=1)
+        self._add_page(self.sys_view, "Sistem / Kali Simgeleri")
+        self.sys_info = Gtk.Label(xalign=0)
+        self.sys_info.get_style_context().add_class("dim-label")
+        box.pack_start(self.sys_info, False, False, 0)
+
+        self.selected_label = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.MIDDLE)
+        box.pack_start(self.selected_label, False, False, 0)
+        self.notebook.connect("switch-page", lambda *_a: GLib.idle_add(self._refilter))
+        self._fill_system()
+        if current and os.path.basename(current).startswith("osint-"):
+            for i, row in enumerate(self.pack_filter):
+                if row[2] == current:
+                    self.pack_view.select_path(Gtk.TreePath(i))
+        self.show_all()
+
+    def _add_page(self, view, title):
+        sw = Gtk.ScrolledWindow()
+        sw.add(view)
+        self.notebook.append_page(sw, Gtk.Label(label=title))
+
+    def _make_view(self, model, text_col, pixbuf_col=None, icon_name_col=None):
+        view = Gtk.IconView(model=model)
+        view.set_item_width(96)
+        view.set_columns(-1)
+        view.set_activate_on_single_click(False)
+        pix = Gtk.CellRendererPixbuf(stock_size=Gtk.IconSize.DIALOG)
+        view.pack_start(pix, False)
+        if pixbuf_col is not None:
+            view.add_attribute(pix, "pixbuf", pixbuf_col)
+        else:
+            view.add_attribute(pix, "icon-name", icon_name_col)
+        txt = Gtk.CellRendererText(alignment=Pango.Alignment.CENTER, xalign=0.5,
+                                   wrap_mode=Pango.WrapMode.WORD_CHAR, wrap_width=90)
+        txt.set_property("size-points", 8)
+        view.pack_start(txt, False)
+        view.add_attribute(txt, "text", text_col)
+        view.connect("item-activated", lambda *_a: self.response(Gtk.ResponseType.OK))
+        view.connect("selection-changed", lambda *_a: self._show_selected())
+        return view
+
+    def _pack_visible(self, model, it, _data):
+        q = self.search.get_text().strip().casefold()
+        return not q or q in model[it][3]
+
+    def _fill_system(self):
+        q = self.search.get_text().strip().casefold()
+        self.sys_store.clear()
+        matches = [n for n in self.all_icons if not q or q in n.casefold()]
+        for n in matches[:self.SYSTEM_LIMIT]:
+            self.sys_store.append([n, n])
+        more = len(matches) - self.SYSTEM_LIMIT
+        self.sys_info.set_text(
+            "%d simgeden ilk %d tanesi gösteriliyor; daraltmak için arayın." %
+            (len(matches), self.SYSTEM_LIMIT) if more > 0 else
+            "Kali araç simgeleri “kali-” ile başlar (ör. kali-sherlock).")
+        self.sys_info.set_visible(self.notebook.get_current_page() == 1)
+
+    def _refilter(self):
+        self._show_selected()
+        self.pack_filter.refilter()
+        if self.notebook.get_current_page() == 1:
+            self._fill_system()
+        else:
+            self.sys_info.set_visible(False)
+        return False
+
+    def _current(self):
+        if self.notebook.get_current_page() == 0:
+            items = self.pack_view.get_selected_items()
+            return (self.pack_filter[items[0]][2], self.pack_filter[items[0]][1]) if items \
+                else (None, None)
+        items = self.sys_view.get_selected_items()
+        return (self.sys_store[items[0]][0],) * 2 if items else (None, None)
+
+    def _show_selected(self):
+        value, label = self._current()
+        self.selected_label.set_markup("Seçili: <b>%s</b>" % GLib.markup_escape_text(label)
+                                       if value else "")
+
+    def choose(self):
+        """Seçilen simgeyi (yol ya da tema adı) döndürür, iptalde None."""
+        while True:
+            resp = self.run()
+            if resp == self.RESP_FILE:
+                path = choose_image_file(self)
+                if path:
+                    self.result = path
+                    break
+                continue
+            if resp == Gtk.ResponseType.OK:
+                value, _label = self._current()
+                if value is None:
+                    continue
+                self.result = value
+            break
+        self.destroy()
+        return self.result
+
+
+def icon_label(value):
+    """Simge değerini kullanıcıya okunur biçimde gösterir."""
+    if not value:
+        return ""
+    if os.path.isabs(value):
+        base = os.path.basename(value)
+        for icon in core.load_icon_pack():
+            if os.path.basename(icon["path"]) == base and \
+                    os.path.dirname(value) in (core.PACK_DIR, core.pack_dir()):
+                return icon["label"]
+        return base
+    return value
+
+
 class IconPicker(Gtk.Box):
     def __init__(self, parent_window, default_icon):
         super().__init__(spacing=6)
         self.parent_window = parent_window
         self.default_icon = default_icon
+        self.value = ""
+        self.preview_btn = Gtk.Button()
+        self.preview_btn.set_tooltip_text("Simge seç")
         self.preview = Gtk.Image()
-        self.entry = Gtk.Entry(hexpand=True)
-        self.entry.set_placeholder_text("Simge adı (ör. utilities-terminal) veya dosya yolu")
-        self.entry.connect("changed", lambda *a: self._update())
-        btn = Gtk.Button(label="Dosya seç…")
+        self.preview_btn.add(self.preview)
+        self.preview_btn.connect("clicked", self._choose)
+        self.label = Gtk.Label(xalign=0, hexpand=True, ellipsize=Pango.EllipsizeMode.END,
+                               width_chars=12)
+        btn = Gtk.Button(label="Simge seç…")
+        btn.set_image(Gtk.Image.new_from_icon_name("image-x-generic", Gtk.IconSize.BUTTON))
+        btn.set_always_show_image(True)
         btn.connect("clicked", self._choose)
-        self.pack_start(self.preview, False, False, 0)
-        self.pack_start(self.entry, True, True, 0)
+        self.clear_btn = Gtk.Button.new_from_icon_name("edit-clear", Gtk.IconSize.BUTTON)
+        self.clear_btn.set_tooltip_text("Varsayılan simgeye dön")
+        self.clear_btn.connect("clicked", lambda *_a: self.set(""))
+        self.pack_start(self.preview_btn, False, False, 0)
+        self.pack_start(self.label, True, True, 0)
+        self.pack_start(self.clear_btn, False, False, 0)
         self.pack_start(btn, False, False, 0)
         self._update()
 
     def _update(self):
-        self.preview.set_from_gicon(make_gicon(self.get(), self.default_icon),
+        self.preview.set_from_gicon(make_gicon(self.value, self.default_icon),
                                     Gtk.IconSize.DND)
+        text = icon_label(self.value)
+        if text:
+            self.label.set_text(text)
+            self.label.set_tooltip_text(self.value)
+        else:
+            self.label.set_markup("<i>Varsayılan simge</i>")
+            self.label.set_tooltip_text(None)
+        self.clear_btn.set_sensitive(bool(self.value))
 
     def _choose(self, _btn):
-        dlg = Gtk.FileChooserDialog(title="Simge seç", transient_for=self.parent_window,
-                                    action=Gtk.FileChooserAction.OPEN)
-        dlg.add_buttons("İptal", Gtk.ResponseType.CANCEL, "Seç", Gtk.ResponseType.OK)
-        flt = Gtk.FileFilter()
-        flt.set_name("Resimler (png, svg, xpm, jpg)")
-        for pat in ("*.png", "*.svg", "*.xpm", "*.jpg", "*.jpeg", "*.ico"):
-            flt.add_pattern(pat)
-            flt.add_pattern(pat.upper())
-        dlg.add_filter(flt)
-        if os.path.isdir("/usr/share/pixmaps"):
-            dlg.set_current_folder("/usr/share/pixmaps")
-        if dlg.run() == Gtk.ResponseType.OK:
-            self.entry.set_text(dlg.get_filename())
-        dlg.destroy()
+        value = IconChooserDialog(self.parent_window, self.value).choose()
+        if value:
+            self.set(value)
 
     def get(self):
-        return self.entry.get_text().strip()
+        return self.value
 
     def set(self, value):
-        self.entry.set_text(value or "")
+        self.value = (value or "").strip()
+        self._update()
 
 
 # --------------------------------------------------------------------------
@@ -531,12 +720,142 @@ class ToolDialog(Gtk.Dialog):
 # --------------------------------------------------------------------------
 # Kategori ekleme / düzenleme
 
+def preset_combo():
+    store = Gtk.ListStore(str, Gio.Icon, str, object)
+    store.append(["", make_gicon("", "folder-templates"), "— Seçin ya da kendiniz yazın —",
+                  None])
+    for name, icon, comment in core.CATEGORY_PRESETS:
+        store.append([name, make_gicon(core.pack_icon(icon), "folder"), name,
+                      (name, icon, comment)])
+    combo = Gtk.ComboBox(model=store)
+    pix = Gtk.CellRendererPixbuf()
+    combo.pack_start(pix, False)
+    combo.add_attribute(pix, "gicon", 1)
+    txt = Gtk.CellRendererText()
+    combo.pack_start(txt, True)
+    combo.add_attribute(txt, "text", 2)
+    combo.set_active(0)
+    return combo
+
+
+class PresetsDialog(Gtk.Dialog):
+    """Hazır OSINT kategorilerini tek seferde oluşturur."""
+
+    def __init__(self, parent, menus, parent_path, existing):
+        super().__init__(title="Hazır OSINT Kategorileri", transient_for=parent, modal=True)
+        self.set_default_size(560, 620)
+        self.add_buttons("İptal", Gtk.ResponseType.CANCEL, "Seçilenleri Oluştur",
+                         Gtk.ResponseType.OK)
+        self.set_default_response(Gtk.ResponseType.OK)
+        box = self.get_content_area()
+        box.set_border_width(12)
+        box.set_spacing(8)
+        lbl = Gtk.Label(xalign=0, wrap=True)
+        lbl.set_markup("Oluşturmak istediğiniz kategorileri işaretleyin. Her biri kendi "
+                       "simgesiyle gelir; adlarını ve simgelerini sonra değiştirebilirsiniz.")
+        box.pack_start(lbl, False, False, 0)
+        row = Gtk.Box(spacing=8)
+        row.pack_start(grid_label("Nerede olsun?"), False, False, 0)
+        self.parent_combo = MenuCombo(menus, allow_root=True)
+        if parent_path is not None:
+            self.parent_combo.set_path(parent_path)
+        row.pack_start(self.parent_combo, True, True, 0)
+        box.pack_start(row, False, False, 0)
+
+        self.existing = existing
+        self.checks = []
+        lb = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        for name, icon, comment in core.CATEGORY_PRESETS:
+            hb = Gtk.Box(spacing=10)
+            hb.set_border_width(4)
+            check = Gtk.CheckButton()
+            img = Gtk.Image.new_from_gicon(make_gicon(core.pack_icon(icon), "folder"),
+                                           Gtk.IconSize.LARGE_TOOLBAR)
+            text = Gtk.Label(xalign=0)
+            text.set_markup("<b>%s</b>\n<small>%s</small>" % (GLib.markup_escape_text(name),
+                                                             GLib.markup_escape_text(comment)))
+            hb.pack_start(check, False, False, 0)
+            hb.pack_start(img, False, False, 0)
+            hb.pack_start(text, True, True, 0)
+            lb.add(hb)
+            self.checks.append((check, text, (name, icon, comment)))
+        sw = Gtk.ScrolledWindow()
+        sw.set_vexpand(True)
+        sw.add(lb)
+        box.pack_start(sw, True, True, 0)
+        sel = Gtk.Box(spacing=6)
+        for label, value in (("Tümünü seç", True), ("Hiçbirini seçme", False)):
+            b = Gtk.Button(label=label)
+            b.connect("clicked", self._set_all, value)
+            sel.pack_start(b, False, False, 0)
+        box.pack_start(sel, False, False, 0)
+        self.parent_combo.connect("changed", lambda *_a: self._mark_existing())
+        self._mark_existing()
+        self.show_all()
+
+    def _mark_existing(self):
+        path = self.parent_combo.get_path() or []
+        names = self.existing(path)
+        for check, _text, (name, _icon, _c) in self.checks:
+            exists = name.casefold() in names
+            check.set_sensitive(not exists)
+            check.set_tooltip_text("Bu adda bir kategori burada zaten var" if exists else None)
+            if exists:
+                check.set_active(False)
+
+    def _set_all(self, _btn, value):
+        for check, _t, _p in self.checks:
+            if check.get_sensitive():
+                check.set_active(value)
+
+    def values(self):
+        return (self.parent_combo.get_path(),
+                [p for check, _t, p in self.checks if check.get_active()])
+
+
+class SystemItemDialog(Gtk.Dialog):
+    """Sistemde zaten olan bir kategorinin ya da uygulamanın adını/simgesini
+    değiştirir."""
+
+    RESP_RESET = 1
+
+    def __init__(self, parent, kind_label, title, icon, overridden):
+        super().__init__(title="%s Özelleştir" % kind_label, transient_for=parent, modal=True)
+        self.set_default_size(560, -1)
+        if overridden:
+            self.add_button("Varsayılana döndür", self.RESP_RESET)
+        self.add_buttons("İptal", Gtk.ResponseType.CANCEL, "Kaydet", Gtk.ResponseType.OK)
+        self.set_default_response(Gtk.ResponseType.OK)
+        box = self.get_content_area()
+        box.set_border_width(12)
+        box.set_spacing(10)
+        g = Gtk.Grid(column_spacing=10, row_spacing=8)
+        box.pack_start(g, False, False, 0)
+        self.name_entry = Gtk.Entry(hexpand=True, activates_default=True)
+        self.name_entry.set_text(title)
+        self.icon_picker = IconPicker(self, "folder" if kind_label == "Kategori"
+                                      else "application-x-executable")
+        self.icon_picker.set(icon)
+        g.attach(grid_label("Ad"), 0, 0, 1, 1)
+        g.attach(self.name_entry, 1, 0, 1, 1)
+        g.attach(grid_label("Simge"), 0, 1, 1, 1)
+        g.attach(self.icon_picker, 1, 1, 1, 1)
+        hint = Gtk.Label(xalign=0, wrap=True, max_width_chars=60)
+        hint.set_markup("<small>Bu öğe sistemde zaten vardı. Özgün dosya bozulmaz: "
+                        "değişiklik ayrı bir kopya ile uygulanır ve istediğiniz zaman "
+                        "“Varsayılana döndür” ile geri alınabilir.</small>")
+        hint.get_style_context().add_class("dim-label")
+        g.attach(hint, 1, 2, 1, 1)
+        self.show_all()
+
+
+
 class CategoryDialog(Gtk.Dialog):
     def __init__(self, parent, menus, cat=None, parent_path=None):
         editing = cat is not None
         super().__init__(title="Kategoriyi Düzenle" if editing else "Yeni Kategori",
                          transient_for=parent, modal=True)
-        self.set_default_size(520, -1)
+        self.set_default_size(580, -1)
         self.add_buttons("İptal", Gtk.ResponseType.CANCEL,
                          "Kaydet" if editing else "Oluştur", Gtk.ResponseType.OK)
         self.set_default_response(Gtk.ResponseType.OK)
@@ -553,10 +872,15 @@ class CategoryDialog(Gtk.Dialog):
         self.parent_combo = MenuCombo(menus, allow_root=True,
                                       exclude_prefix=core.cat_path(cat) if editing else None)
         self.icon_picker = IconPicker(self, "folder")
-        for row, (label, widget) in enumerate((("Kategori adı", self.name_entry),
-                                               ("Nerede olsun?", self.parent_combo),
-                                               ("Simge", self.icon_picker),
-                                               ("Açıklama", self.comment_entry))):
+        rows = [("Kategori adı", self.name_entry),
+                ("Nerede olsun?", self.parent_combo),
+                ("Simge", self.icon_picker),
+                ("Açıklama", self.comment_entry)]
+        if not editing:
+            self.preset_combo = preset_combo()
+            self.preset_combo.connect("changed", self._preset_chosen)
+            rows.insert(0, ("Hazır şablon", self.preset_combo))
+        for row, (label, widget) in enumerate(rows):
             g.attach(grid_label(label), 0, row, 1, 1)
             g.attach(widget, 1, row, 1, 1)
         hint = Gtk.Label(xalign=0, wrap=True, max_width_chars=60)
@@ -565,7 +889,7 @@ class CategoryDialog(Gtk.Dialog):
                         "seçerseniz onun içinde alt kategori olur.\nNot: XFCE boş "
                         "kategorileri menüde göstermez; içine araç ekleyince görünür.</small>")
         hint.get_style_context().add_class("dim-label")
-        g.attach(hint, 1, 4, 1, 1)
+        g.attach(hint, 1, len(rows), 1, 1)
 
         if editing:
             self.name_entry.set_text(cat["name"])
@@ -575,6 +899,15 @@ class CategoryDialog(Gtk.Dialog):
         elif parent_path is not None:
             self.parent_combo.set_path(parent_path)
         self.show_all()
+
+    def _preset_chosen(self, combo):
+        it = combo.get_active_iter()
+        if it is None or combo.get_active() == 0:
+            return
+        name, icon, comment = combo.get_model()[it][3]
+        self.name_entry.set_text(name)
+        self.icon_picker.set(core.pack_icon(icon))
+        self.comment_entry.set_text(comment)
 
     def values(self):
         return {"name": self.name_entry.get_text().strip(),
@@ -618,8 +951,11 @@ class MainWindow(Gtk.Window):
         self.btn_add.get_style_context().add_class("suggested-action")
         self.btn_cat = button("Kategori Oluştur", "folder-new", self.on_add_category,
                               "Menüde yeni bir kategori ya da alt kategori oluştur")
+        self.btn_presets = button("Hazır Kategoriler", "folder-templates", self.on_presets,
+                                  "Simgeleriyle hazır OSINT kategorilerini tek seferde oluştur")
         self.btn_edit = button("Düzenle", "document-edit", self.on_edit,
-                               "Seçili aracı veya kategoriyi düzenle")
+                               "Seçili öğeyi düzenle; sistemdeki kategori ve uygulamaların "
+                               "adını/simgesini de değiştirebilirsiniz")
         self.btn_del = button("Sil", "edit-delete", self.on_delete,
                               "Seçili aracı veya kategoriyi sil")
         self.btn_update = button("Güncelle", "view-refresh", self.on_update,
@@ -634,10 +970,9 @@ class MainWindow(Gtk.Window):
         self.show_sys = Gtk.CheckButton(label="Sistem uygulamalarını göster")
         self.show_sys.set_active(True)
         self.show_sys.connect("toggled", lambda *_a: self.rebuild())
-        bar.pack_end(self.show_sys, False, False, 0)
 
         # Ağaç görünümü
-        self.store = Gtk.TreeStore(str, str, str, Gio.Icon, str, str, str, int, str)
+        self.store = Gtk.TreeStore(str, str, str, Gio.Icon, str, str, str, int, str, str)
         self.store.set_default_sort_func(self._sort_func)
         self.store.set_sort_column_id(Gtk.TREE_SORTABLE_DEFAULT_SORT_COLUMN_ID,
                                       Gtk.SortType.ASCENDING)
@@ -670,15 +1005,19 @@ class MainWindow(Gtk.Window):
 
         tip = Gtk.Label(xalign=0, wrap=True)
         tip.set_markup(
-            "<small>💡 <b>Kalın</b> öğeler sizin eklediklerinizdir. Araçları ve kendi "
-            "kategorilerinizi <b>sürükleyip</b> istediğiniz kategoriye bırakabilirsiniz. "
-            "Gri öğeler sistemde zaten olan uygulamalardır. Değişiklikler menüye hemen "
-            "uygulanır; GitHub araçları terminalde adıyla çalışır.</small>")
+            "<small>💡 <b>Kalın</b> öğeler sizin eklediklerinizdir; <b>sürükleyip</b> "
+            "istediğiniz kategoriye bırakabilirsiniz. Gri öğeler sistemde zaten olanlardır; "
+            "<b>Düzenle</b> ile onların da adını ve simgesini değiştirebilirsiniz. "
+            "Değişiklikler menüye hemen uygulanır.</small>")
         tip.set_margin_start(8)
         tip.set_margin_end(8)
         tip.set_margin_top(4)
         tip.set_margin_bottom(4)
-        outer.pack_start(tip, False, False, 0)
+        bottom = Gtk.Box(spacing=8)
+        bottom.pack_start(tip, True, True, 0)
+        self.show_sys.set_margin_end(8)
+        bottom.pack_end(self.show_sys, False, False, 0)
+        outer.pack_start(bottom, False, False, 0)
 
         self.statusbar = Gtk.Label(xalign=0, ellipsize=Pango.EllipsizeMode.END)
         self.statusbar.set_margin_start(8)
@@ -764,10 +1103,13 @@ class MainWindow(Gtk.Window):
 
     def _build_nodes(self):
         def node(kind, ident, path, title, icon, detail, fg=None, weight=400, tip=None,
-                 fallback="application-x-executable"):
+                 fallback="application-x-executable", file=None):
             return {"kind": kind, "ident": ident, "path": list(path), "title": title,
                     "icon": make_gicon(icon, fallback), "detail": detail, "fg": fg,
-                    "weight": weight, "tip": tip, "children": []}
+                    "weight": weight, "tip": tip, "children": [], "file": file}
+
+        def custom(kind, ident):
+            return " (özelleştirildi)" if core.find_override(self.state, kind, ident) else ""
 
         root = node("root", "", [], "Uygulama Menüsü (en üst)", "start-here-kali",
                     "Ana menü", weight=700, fallback="start-here")
@@ -776,8 +1118,10 @@ class MainWindow(Gtk.Window):
 
         def add_sys(src, parent):
             key = core.path_key(src.path)
-            n = node("menu", src.name, src.path, src.title, src.icon, "Kategori",
-                     tip=src.comment or None, fallback="folder")
+            dir_id = os.path.basename(src.file) if src.file else ""
+            n = node("menu", src.name, src.path, src.title, src.icon,
+                     "Kategori" + custom("directory", dir_id),
+                     tip=src.comment or None, fallback="folder", file=src.file)
             parent["children"].append(n)
             index[key] = n
             for child in src.children:
@@ -787,14 +1131,16 @@ class MainWindow(Gtk.Window):
                 if e["id"].startswith(core.PREFIX):
                     continue
                 n["children"].append(node("sys", e["id"], src.path, e["title"], e["icon"],
-                                          "Sistem uygulaması", fg=grey,
-                                          tip=e["comment"] or e["id"]))
+                                          "Sistem uygulaması" + custom("app", e["id"]),
+                                          fg=grey, tip=e["comment"] or e["id"],
+                                          file=e.get("file")))
 
         if self.scan is not None:
             for e in self.scan.entries:
                 if not e["id"].startswith(core.PREFIX):
                     root["children"].append(node("sys", e["id"], [], e["title"], e["icon"],
-                                                 "Sistem uygulaması", fg=grey))
+                                                 "Sistem uygulaması" + custom("app", e["id"]),
+                                                 fg=grey, file=e.get("file")))
             for child in self.scan.children:
                 if not child.name.startswith(core.PREFIX):
                     add_sys(child, root)
@@ -863,7 +1209,7 @@ class MainWindow(Gtk.Window):
         def insert(n, parent_it):
             it = self.store.append(parent_it, [n["kind"], n["ident"], core.path_key(n["path"]),
                                                n["icon"], n["title"], n["detail"], n["fg"],
-                                               n["weight"], n["tip"]])
+                                               n["weight"], n["tip"], n["file"]])
             for c in n["children"]:
                 insert(c, it)
 
@@ -935,7 +1281,7 @@ class MainWindow(Gtk.Window):
     def _update_buttons(self):
         row = self._selected()
         kind = row[C_KIND] if row else None
-        self.btn_edit.set_sensitive(kind in ("tool", "cat"))
+        self.btn_edit.set_sensitive(kind in ("tool", "cat", "menu", "sys"))
         self.btn_del.set_sensitive(kind in ("tool", "cat"))
         tool = core.find_tool(self.state, row[C_IDENT]) if kind == "tool" else None
         self.btn_update.set_sensitive(bool(tool) and tool["source"]["type"] != "existing")
@@ -944,7 +1290,7 @@ class MainWindow(Gtk.Window):
     # -------------------------------------------------------------- olaylar
     def _on_row_activated(self, tree, path, _col):
         kind = self.store[path][C_KIND]
-        if kind in ("tool", "cat"):
+        if kind in ("tool", "cat", "sys"):
             self.on_edit()
         elif tree.row_expanded(path):
             tree.collapse_row(path)
@@ -989,8 +1335,10 @@ class MainWindow(Gtk.Window):
 
         item("Buraya araç ekle…", self.on_add_tool)
         item("Buraya alt kategori oluştur…", self.on_add_category)
+        item("Buraya hazır OSINT kategorileri ekle…", self.on_presets)
         menu.append(Gtk.SeparatorMenuItem())
-        item("Düzenle…", self.on_edit, kind in ("tool", "cat"))
+        item("Düzenle…" if kind in ("tool", "cat", None, "root") else "Adını / simgesini değiştir…",
+             self.on_edit, kind in ("tool", "cat", "menu", "sys"))
         item("Sil", self.on_delete, kind in ("tool", "cat"))
         tool = core.find_tool(self.state, row[C_IDENT]) if kind == "tool" else None
         item("Güncelle", self.on_update, bool(tool) and tool["source"]["type"] != "existing")
@@ -1186,6 +1534,12 @@ class MainWindow(Gtk.Window):
                 break
             edlg.destroy()
 
+        if not v["icon"]:
+            theme = Gtk.IconTheme.get_default()
+            for cand in ("kali-" + v["command"], v["command"], "kali-" + core.slugify(v["name"])):
+                if cand and theme.has_icon(cand):
+                    v["icon"] = cand
+                    break
         try:
             tool["icon"] = core.store_icon(v["icon"], "arac-" + tool_id)
         except (OSError, core.OmyError) as e:
@@ -1230,6 +1584,101 @@ class MainWindow(Gtk.Window):
             self._edit_tool(core.find_tool(self.state, row[C_IDENT]))
         elif row[C_KIND] == "cat":
             self._edit_cat(core.find_cat(self.state, row[C_IDENT]))
+        elif row[C_KIND] in ("menu", "sys"):
+            self._edit_system(row)
+
+    def _edit_system(self, row):
+        kind = "directory" if row[C_KIND] == "menu" else "app"
+        file = row[C_FILE]
+        if not file:
+            error(self, "Bu kategori özelleştirilemiyor.",
+                  "Kategorinin bir tanım (.directory) dosyası yok.")
+            return
+        ident = os.path.basename(file) if kind == "directory" else row[C_IDENT]
+        ov = core.find_override(self.state, kind, ident)
+        current_icon = self._row_icon(row)
+        dlg = SystemItemDialog(self, "Kategori" if kind == "directory" else "Uygulama",
+                               row[C_TITLE], current_icon, ov is not None)
+        resp = dlg.run()
+        name, icon = dlg.name_entry.get_text().strip(), dlg.icon_picker.get()
+        dlg.destroy()
+        select = (row[C_KIND], row[C_IDENT])
+        try:
+            if resp == SystemItemDialog.RESP_RESET and ov is not None:
+                core.remove_override(self.state, ov)
+                self.commit("“%s” varsayılana döndürüldü." % row[C_TITLE], select=select)
+                return
+            if resp != Gtk.ResponseType.OK:
+                return
+            if name == row[C_TITLE] and icon == current_icon:
+                return
+            if icon and os.path.isabs(icon):
+                icon = core.store_icon(icon, "ozel-" + core.slugify(ident))
+            core.set_override(self.state, kind, ident, file,
+                              name if name != row[C_TITLE] or (ov and ov.get("name")) else "",
+                              icon if icon != current_icon or (ov and ov.get("icon")) else "")
+        except (OSError, core.OmyError) as e:
+            error(self, "Değiştirilemedi.", str(e))
+            return
+        self.commit("“%s” güncellendi." % (name or row[C_TITLE]), select=select)
+
+    def _row_icon(self, row):
+        """Satırdaki öğenin dosyada yazan simge değeri."""
+        if self.scan is None:
+            return ""
+        path = row[C_PATH].split("/") if row[C_PATH] else []
+        node = self.scan
+        for name in path:
+            node = next((c for c in node.children if c.name == name), None)
+            if node is None:
+                return ""
+        if row[C_KIND] == "menu":
+            return node.icon
+        for e in node.entries:
+            if e["id"] == row[C_IDENT]:
+                return e["icon"]
+        return ""
+
+    def on_presets(self):
+        def existing(path):
+            names = set()
+            for c in self.state["categories"]:
+                if c["parent"] == list(path):
+                    names.add(c["name"].casefold())
+            node = self.scan
+            for name in path:
+                node = next((c for c in node.children if c.name == name), None) if node else None
+            if node is not None:
+                names |= {c.title.casefold() for c in node.children}
+            return names
+
+        default = None
+        for p, label, _icon in self.menus:
+            if len(p) == 1 and label.strip().casefold() == "osint":
+                default = p
+        sel = self._current_menu_path()
+        dlg = PresetsDialog(self, self.menus, sel if sel else default, existing)
+        while True:
+            if dlg.run() != Gtk.ResponseType.OK:
+                dlg.destroy()
+                return
+            parent, chosen = dlg.values()
+            if parent is None:
+                error(self, "Lütfen kategorilerin yerini seçin.")
+                continue
+            if not chosen:
+                error(self, "Hiç kategori seçmediniz.")
+                continue
+            break
+        dlg.destroy()
+        last = None
+        for name, icon, comment in chosen:
+            cat = {"id": core.new_category_id(self.state, name), "name": name,
+                   "comment": comment, "icon": core.pack_icon(icon), "parent": list(parent)}
+            self.state["categories"].append(cat)
+            last = cat["id"]
+        self.commit("%d kategori oluşturuldu. Boş kategoriler menüde içine araç ekleyince "
+                    "görünür." % len(chosen), select=("cat", last))
 
     def _edit_tool(self, tool):
         if tool is None:

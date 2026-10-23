@@ -6,6 +6,7 @@ Kullanım:
   osint-menu-yonetici              Grafik arayüzü açar
   osint-menu-yonetici --uygula     Menü ve komut dosyalarını kayıttan yeniden üretir
   osint-menu-yonetici --liste      Eklenen kategori ve araçları listeler
+  osint-menu-yonetici --temizle    Yapılan bütün menü değişikliklerini geri alır
   osint-menu-yonetici --yardim     Bu yardımı gösterir
 """
 import os
@@ -27,6 +28,12 @@ def cli_list():
     for c in state["categories"]:
         print("  %-30s  konum: %s" % (c["name"], label(c["parent"])))
     if not state["categories"]:
+        print("  (yok)")
+    print("\nÖzelleştirilen sistem öğeleri:")
+    for ov in state.get("overrides", []):
+        print("  %-30s  ad: %s  simge: %s" % (ov["id"], ov.get("name") or "-",
+                                             ov.get("icon") or "-"))
+    if not state.get("overrides"):
         print("  (yok)")
     print("\nAraçlar:")
     for t in state["tools"]:
@@ -62,6 +69,13 @@ def main(argv):
             return cli_list()
         if args and args[0] in ("--uygula", "--apply"):
             return cli_apply()
+        if args and args[0] in ("--temizle", "--clean"):
+            if os.geteuid() != 0 and "OMY_ROOT" not in os.environ:
+                print("Bu işlem için root yetkisi gerekli.", file=sys.stderr)
+                return 1
+            core.cleanup_all()
+            print("Bütün menü değişiklikleri geri alındı (indirilen araç klasörleri duruyor).")
+            return 0
         if args:
             print("Bilinmeyen seçenek: %s\n\n%s" % (args[0], __doc__.strip()), file=sys.stderr)
             return 2
