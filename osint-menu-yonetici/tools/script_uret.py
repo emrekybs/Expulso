@@ -47,6 +47,12 @@ if [ "$(id -u)" -ne 0 ]; then
     exec sudo bash "$0" "$@"
 fi
 
+# "sudo: unable to resolve host" uyarısını gider (bilgisayar adı /etc/hosts'ta yoksa ekle)
+HN="$(hostname)"
+if [ -n "$HN" ] && ! grep -qw "$HN" /etc/hosts; then
+    echo "127.0.1.1 $HN" >> /etc/hosts
+fi
+
 EVET=0; APT_ADIMI=1
 for a in "$@"; do
     case "$a" in
