@@ -77,6 +77,9 @@ export async function runOsint(t: ParsedTarget, opts: { crawl?: number; nonStric
           }
           if (res.status !== 200 && res.status !== 404 && first) warnings.push(`HTTP ${res.status}: the site may use anti-scraping. The response was still analysed.`);
           const ex = extractFromHtml(res.body, res.finalUrl, nonStrict);
+          if (ex.challenge && !warnings.some((w) => w.includes("results are limited"))) {
+            warnings.push(`The site returned a ${ex.challenge} page instead of content, so results are limited. The site blocks automated access; this is not an empty result.`);
+          }
           const page: OsintPage = { url: res.finalUrl, status: res.status, title: ex.title };
           if (mode === "keywords") {
             page.matched = matchKeywords(res.body, keywords);

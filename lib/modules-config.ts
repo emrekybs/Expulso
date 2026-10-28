@@ -65,11 +65,11 @@ export const MODULES: ModuleDef[] = [
     description:
       "Merges passive sources (the ones subfinder and assetfinder use), de-duplicates, resolves every name over DNS and optionally checks the HTTP status of each live host.",
     accepts: NAMES,
-    sources: ["crt.sh", "CertSpotter", "HackerTarget", "AlienVault OTX", "Anubis", "RapidDNS", "urlscan.io", "ThreatMiner"],
+    sources: ["crt.sh", "CertSpotter", "HackerTarget", "AlienVault OTX", "Anubis", "RapidDNS", "urlscan.io", "ThreatMiner", "Wayback Machine", "Sonar"],
     bulkLimit: 20,
     options: [
       { key: "resolve", label: "Resolve DNS", type: "boolean", default: true },
-      { key: "httpStatus", label: "HTTP status per host (light: one request per host)", type: "boolean", default: false },
+      { key: "httpStatus", label: "HTTP status per host (light: one request per host)", type: "boolean", default: true },
     ],
   },
   {

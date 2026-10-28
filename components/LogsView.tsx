@@ -1,11 +1,11 @@
 "use client";
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { getLogs, clearLogs, subscribeLogs, type LogEntry, type LogLevel } from "@/lib/client/logs";
+import { getLogs, getServerLogs, clearLogs, subscribeLogs, type LogEntry, type LogLevel } from "@/lib/client/logs";
 import { download, stamp } from "@/lib/client/export";
 import { Chips } from "./ui";
 
 export default function LogsView() {
-  const logs = useSyncExternalStore(subscribeLogs, getLogs, () => [] as LogEntry[]);
+  const logs = useSyncExternalStore(subscribeLogs, getLogs, getServerLogs);
   const [filter, setFilter] = useState<LogLevel | "all">("all");
   const [open, setOpen] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);

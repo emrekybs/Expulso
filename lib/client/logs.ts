@@ -17,32 +17,45 @@ const KEY = "recon:logs";
 const MAX = 500;
 const listeners = new Set<() => void>();
 
-function read(): LogEntry[] {
+// useSyncExternalStore requires getSnapshot to return the SAME reference until the store
+// changes. Parsing storage on every call produced a new array each time and caused an
+// infinite update loop. We keep one cached snapshot and replace it only on write.
+const EMPTY: LogEntry[] = [];
+let snapshot: LogEntry[] | null = null;
+
+function load(): LogEntry[] {
+  if (snapshot) return snapshot;
   try {
-    return JSON.parse(sessionStorage.getItem(KEY) || "[]") as LogEntry[];
+    snapshot = JSON.parse(sessionStorage.getItem(KEY) || "[]") as LogEntry[];
   } catch {
-    return [];
+    snapshot = [];
   }
+  return snapshot;
 }
+
 function write(list: LogEntry[]) {
+  snapshot = list.slice(0, MAX);
   try {
-    sessionStorage.setItem(KEY, JSON.stringify(list.slice(0, MAX)));
+    sessionStorage.setItem(KEY, JSON.stringify(snapshot));
   } catch {
-    /* ignore */
+    /* storage unavailable: keep in memory only */
   }
   listeners.forEach((l) => l());
 }
 
 export function addLog(e: Omit<LogEntry, "id" | "at">) {
   if (typeof window === "undefined") return;
-  const list = read();
-  list.unshift({ ...e, id: Math.random().toString(36).slice(2), at: Date.now() });
-  write(list);
+  write([{ ...e, id: Math.random().toString(36).slice(2), at: Date.now() }, ...load()]);
 }
 
+/** Stable snapshot for useSyncExternalStore (same reference unless logs changed). */
 export function getLogs(): LogEntry[] {
-  if (typeof window === "undefined") return [];
-  return read();
+  if (typeof window === "undefined") return EMPTY;
+  return load();
+}
+
+export function getServerLogs(): LogEntry[] {
+  return EMPTY;
 }
 
 export function clearLogs() {

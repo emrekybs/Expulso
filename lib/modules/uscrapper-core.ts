@@ -75,6 +75,34 @@ export interface PageExtraction {
   phones: string[];
   usernames: string[];
   links: string[];
+  /** Set when the response is a bot-challenge / interstitial page instead of the real site. */
+  challenge: string | null;
+}
+
+/** Cloudflare "email protection": the address is XOR-obfuscated in data-cfemail or the href hash. */
+export function decodeCfEmail(hex: string): string | null {
+  if (!/^[0-9a-f]{4,}$/i.test(hex) || hex.length % 2) return null;
+  const key = parseInt(hex.slice(0, 2), 16);
+  let out = "";
+  for (let i = 2; i < hex.length; i += 2) out += String.fromCharCode(parseInt(hex.slice(i, i + 2), 16) ^ key);
+  return out.includes("@") ? out : null;
+}
+
+/** "name [at] domain [dot] com", "name(at)domain(dot)com", "name at domain dot com" -> normal address. */
+export function deobfuscate(text: string): string {
+  return text
+    .replace(/\s*[\[\(\{]\s*at\s*[\]\)\}]\s*|\s+at\s+(?=[\w.-]+\s+(?:dot|\.)\s)/gi, "@")
+    .replace(/\s*[\[\(\{]\s*dot\s*[\]\)\}]\s*|\s+dot\s+/gi, ".");
+}
+
+/** Returns a short reason if the HTML is a bot-challenge / interstitial page. */
+export function challengeOf(html: string): string | null {
+  const h = html.slice(0, 20000);
+  if (/cf-chl-|challenge-platform|cdn-cgi\/challenge-platform/i.test(h)) return "Cloudflare bot challenge";
+  if (/<title>\s*Just a moment\.\.\./i.test(h)) return "Cloudflare \"Just a moment\" interstitial";
+  if (/<title>\s*Attention Required!?\s*\|\s*Cloudflare/i.test(h)) return "Cloudflare access block";
+  if (/Access denied|Request unsuccessful\. Incapsula|_Incapsula_Resource/i.test(h)) return "WAF access block page";
+  return null;
 }
 
 export function platformOf(href: string): string | null {
@@ -111,9 +139,20 @@ export function extractFromHtml(html: string, pageUrl: string, nonStrict: boolea
   const socialLinks = new Map<string, string>();
   const links = new Set<string>();
 
+  // Cloudflare-protected addresses (no plain text in the HTML at all).
+  $("[data-cfemail]").each((_, el) => {
+    const e = decodeCfEmail($(el).attr("data-cfemail") ?? "");
+    if (e) emails.add(e);
+  });
+
   $("a[href]").each((_, a) => {
     const href = ($(a).attr("href") ?? "").trim();
     if (!href) return;
+    if (/\/cdn-cgi\/l\/email-protection#/i.test(href)) {
+      const e = decodeCfEmail(href.split("#")[1] ?? "");
+      if (e) emails.add(e);
+      return;
+    }
     if (href.toLowerCase().includes("mailto:")) {
       const addr = decodeURIComponentSafe(href.replace(/^.*?mailto:/i, "").split("?")[0]);
       for (const one of addr.split(/[,;]/)) if (one.trim()) emails.add(one.trim());
@@ -145,7 +184,13 @@ export function extractFromHtml(html: string, pageUrl: string, nonStrict: boolea
     if (c) geolocations.add(c);
   });
 
-  const text = visibleText($);
+  // Same as the original Uscrapper's soup.get_text(): visible text PLUS script/JSON text,
+  // so addresses embedded in JavaScript or structured data are still found.
+  const scripts = $("script")
+    .map((_, s) => $(s).html() ?? "")
+    .get()
+    .join("\n");
+  const text = visibleText($) + "\n" + scripts + "\n" + deobfuscate(visibleText($));
 
   const textEmails = new Set<string>();
   for (const m of text.matchAll(EMAIL_RE)) {
@@ -174,6 +219,7 @@ export function extractFromHtml(html: string, pageUrl: string, nonStrict: boolea
     phones: [...phones],
     usernames: [...usernames],
     links: [...links],
+    challenge: challengeOf(html),
   };
 }
 

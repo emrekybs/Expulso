@@ -92,3 +92,45 @@ test("auth token round-trip", () => {
   assert.equal(verifyToken(token + "x"), null);
   assert.equal(verifyToken("a.b.c"), null);
 });
+
+// ---------------- Uscrapper extraction (regression for "no emails found") ----------------
+import { extractFromHtml, decodeCfEmail, deobfuscate, challengeOf } from "../lib/modules/uscrapper-core.ts";
+
+function cfEncode(email: string, key = 0x2a): string {
+  return key.toString(16).padStart(2, "0") + [...email].map((c) => (c.charCodeAt(0) ^ key).toString(16).padStart(2, "0")).join("");
+}
+
+test("extracts mailto, visible text and script-embedded emails", () => {
+  const html = `<html><head><title>Acme</title></head><body>
+    <a href="mailto:info@acme.com?subject=hi">Mail us</a>
+    <p>Sales: sales@acme.com</p>
+    <script>var c = {"support":"support@acme.com"};</script>
+  </body></html>`;
+  const ex = extractFromHtml(html, "https://acme.com/", false);
+  assert.ok(ex.emails.includes("info@acme.com"));
+  assert.ok(ex.textEmails.includes("sales@acme.com"));
+  assert.ok(ex.textEmails.includes("support@acme.com"), "script text must be scanned like the original get_text()");
+  assert.equal(ex.title, "Acme");
+});
+
+test("decodes Cloudflare-protected addresses (data-cfemail and href hash)", () => {
+  const hex = cfEncode("kariyer@acme.com.tr");
+  assert.equal(decodeCfEmail(hex), "kariyer@acme.com.tr");
+  const html = `<span class="__cf_email__" data-cfemail="${hex}">[email&#160;protected]</span>
+                <a href="/cdn-cgi/l/email-protection#${cfEncode("hr@acme.com.tr")}">x</a>`;
+  const ex = extractFromHtml(html, "https://acme.com.tr/", false);
+  assert.ok(ex.emails.includes("kariyer@acme.com.tr"));
+  assert.ok(ex.emails.includes("hr@acme.com.tr"));
+});
+
+test("deobfuscates [at] / [dot] written addresses", () => {
+  assert.equal(deobfuscate("ahmet [at] acme [dot] com"), "ahmet@acme.com");
+  assert.equal(deobfuscate("ahmet(at)acme(dot)com"), "ahmet@acme.com");
+});
+
+test("flags bot-challenge pages so empty results are explained, not silent", () => {
+  assert.equal(challengeOf("<title>Just a moment...</title>"), 'Cloudflare "Just a moment" interstitial');
+  assert.equal(challengeOf("<html><body>hello</body></html>"), null);
+  const ex = extractFromHtml("<title>Just a moment...</title><div id='challenge-platform'></div>", "https://x.com/", false);
+  assert.ok(ex.challenge);
+});

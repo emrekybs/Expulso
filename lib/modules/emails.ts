@@ -89,19 +89,37 @@ export async function runEmails(t: ParsedTarget): Promise<ModuleOutput<EmailData
 
   const deadline = Date.now() + 35000;
   const visited = new Set<string>();
-  for (const p of START_PATHS) {
-    if (Date.now() > deadline) break;
-    const url = origin + p;
+  const queue: { url: string; label: string }[] = [{ url: origin + "/", label: "Homepage" }];
+  const CONTACT_RE = /contact|iletisim|i̇letişim|about|hakkimizda|hakkımızda|team|ekip|kadro|management|yonetim|career|kariyer|insan|press|basin|privacy|gizlilik|kvkk|impressum|legal|support|destek|sales|satis/i;
+  let discovered = 0;
+
+  while (queue.length && visited.size < 14 && Date.now() < deadline) {
+    const { url, label } = queue.shift()!;
     if (visited.has(url)) continue;
     visited.add(url);
     try {
       const res = await safeFetch(url, { timeoutMs: 9000, maxBytes: 1_500_000, followRedirects: true });
       if (res.status !== 200) continue;
       const ex = extractFromHtml(res.body, res.finalUrl, false);
-      [...ex.emails, ...ex.textEmails].forEach((e) => addEmail(e, p === "/" ? "Homepage" : `Page ${p}`));
+      if (ex.challenge && !warnings.some((w) => w.includes("results are limited"))) {
+        warnings.push(`The site returned a ${ex.challenge} page, so the homepage could not be read. Results are limited because the site blocks automated access.`);
+      }
+      [...ex.emails, ...ex.textEmails].forEach((e) => addEmail(e, label));
       extractNames(res.body).forEach((n) => nameSet.set(`${n.first} ${n.last}`, n));
+      // Follow contact-, team- and career-type links found on the page, plus the common fixed paths.
+      if (label === "Homepage") {
+        for (const link of ex.links) {
+          if (discovered >= 10) break;
+          const path = new URL(link).pathname;
+          if (CONTACT_RE.test(path) && !visited.has(link)) {
+            queue.push({ url: link, label: `Page ${path}` });
+            discovered++;
+          }
+        }
+        for (const p of START_PATHS) queue.push({ url: origin + p, label: `Page ${p}` });
+      }
     } catch (e) {
-      if (p === "/") warnings.push(`Homepage: ${e instanceof UserError ? e.message : "fetch failed"}`);
+      if (label === "Homepage") warnings.push(`Homepage: ${e instanceof UserError ? e.message : "fetch failed"}`);
     }
   }
 

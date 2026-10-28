@@ -24,12 +24,47 @@ export interface SubData {
 
 type Source = { name: string; run: (d: string) => Promise<{ host: string; ip?: string }[]> };
 
+/** One retry for flaky public endpoints (crt.sh often answers 502/timeout on the first try). */
+async function retry<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
+  let last: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      last = e;
+      if (e instanceof UserError && e.code === "rate_limited") break;
+    }
+  }
+  throw last;
+}
+
 const SOURCES: Source[] = [
   {
     name: "crt.sh",
     run: async (d) => {
-      const j = await fetchJson<{ name_value: string }[]>(`https://crt.sh/?q=${encodeURIComponent(`%.${d}`)}&output=json`, 25000);
+      const j = await retry(() => fetchJson<{ name_value: string }[]>(`https://crt.sh/?q=${encodeURIComponent(`%.${d}`)}&output=json`, 20000));
       return j.flatMap((r) => r.name_value.split(/\s+/)).map((host) => ({ host }));
+    },
+  },
+  {
+    name: "Wayback Machine",
+    run: async (d) => {
+      // CDX index: every URL ever archived under the domain; keep unique hostnames.
+      const rows = await fetchJson<string[][]>(`https://web.archive.org/cdx/search/cdx?url=*.${encodeURIComponent(d)}/*&output=json&fl=original&collapse=urlkey&limit=20000`, 25000);
+      return rows.slice(1).flatMap(([url]) => {
+        try {
+          return [{ host: new URL(url).hostname }];
+        } catch {
+          return [];
+        }
+      });
+    },
+  },
+  {
+    name: "Sonar (omnisint)",
+    run: async (d) => {
+      const j = await fetchJson<string[]>(`https://sonar.omnisint.io/subdomains/${encodeURIComponent(d)}`, 15000);
+      return (Array.isArray(j) ? j : []).map((host) => ({ host }));
     },
   },
   {
@@ -101,7 +136,9 @@ export async function runSubdomains(t: ParsedTarget, opts: { resolve?: boolean; 
   if (t.kind === "ip" || t.kind === "cidr") throw new UserError("Subdomain Enumeration needs a domain.");
   const domain = registrableDomain(t.host);
   const map = new Map<string, SubEntry>();
-  const deadline = Date.now() + 45000;
+  // One overall time budget: Vercel functions are cut at 60 s, so every phase is bounded from the start.
+  const started = Date.now();
+  const deadline = started + 36000;
 
   const sources: SourceStatus[] = await Promise.all(
     SOURCES.map(async (s): Promise<SourceStatus> => {
@@ -164,7 +201,7 @@ export async function runSubdomains(t: ParsedTarget, opts: { resolve?: boolean; 
 
   if (opts.httpStatus) {
     const live = entries.filter((e) => e.resolved).slice(0, 150);
-    const httpDeadline = Date.now() + 40000;
+    const httpDeadline = started + 50000;
     await mapLimit(live, 16, async (e) => {
       if (Date.now() > httpDeadline) return;
       try {

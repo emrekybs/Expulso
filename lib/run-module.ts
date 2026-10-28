@@ -24,6 +24,18 @@ import { runOrigin } from "./modules/origin.ts";
 
 type Opts = Record<string, unknown>;
 
+const MODULE_TIMEOUT_MS = 50_000;
+
+function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new UserError(message, "timeout")), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
 const RUNNERS: Record<ModuleId, (t: ParsedTarget, o: Opts) => Promise<ModuleOutput>> = {
   subdomains: (t, o) => runSubdomains(t, { resolve: o.resolve !== false, httpStatus: o.httpStatus === true }),
   dns: (t) => runDns(t),
@@ -64,7 +76,9 @@ export async function runModule(moduleId: string, parsed: ParsedTarget, options:
     return { ok: false, skipped: true, error: `${def.title} does not accept a ${parsed.kind} target.`, code: "not_applicable", durationMs: 0 };
   }
   try {
-    const result = await RUNNERS[def.id](parsed, options);
+    // Hard cap per module: serverless functions are cut at 60 s, and a cut-off request gives the
+    // user a generic 504 instead of an explanation. Fail the one module with a clear message instead.
+    const result = await withTimeout(RUNNERS[def.id](parsed, options), MODULE_TIMEOUT_MS, `${def.title} stopped after ${MODULE_TIMEOUT_MS / 1000} s (time limit). Try a smaller scope.`);
     return { ok: true, result, durationMs: Date.now() - started };
   } catch (e) {
     const isUser = e instanceof UserError;

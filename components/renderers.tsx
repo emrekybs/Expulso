@@ -38,7 +38,7 @@ function bytes(n?: number) {
 function Subdomains({ d }: { d: SubData }) {
   const cols: Column<SubEntry>[] = [
     { key: "host", header: "Subdomain", render: (r) => <span className="value">{r.host}{r.takeover && <Badge kind="orange"> takeover</Badge>}</span>, value: (r) => r.host, sortable: true },
-    { key: "status", header: "Status", render: (r) => (r.http ? <>{statusBadge(r.http.status)}{r.http.redirect && <div className="small muted">→ {r.http.redirect}</div>}</> : r.resolved === false ? <Badge>unresolved</Badge> : r.resolved ? <Badge kind="ok">resolved</Badge> : <Badge>—</Badge>) },
+    { key: "status", header: "Status", render: (r) => (r.http ? <>{statusBadge(r.http.status)}{r.http.redirect && <div className="small muted">→ {r.http.redirect}</div>}</> : r.resolved === false ? <Badge>unresolved</Badge> : r.resolved ? (r.http === null ? <Badge kind="warn">no response</Badge> : <Badge kind="ok">resolved</Badge>) : <Badge>—</Badge>) },
     { key: "title", header: "Title", render: (r) => <span className="muted">{r.http?.title || "—"}</span> },
     { key: "ip", header: "IP / CNAME", render: (r) => <span className="muted wrap-anywhere">{r.cname ? `CNAME ${r.cname}` : r.ips.join(", ") || "—"}</span> },
     { key: "server", header: "Server", render: (r) => <span className="muted">{r.http?.server || "—"}</span> },
