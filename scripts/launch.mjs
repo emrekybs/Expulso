@@ -1,6 +1,6 @@
 // One-step local launcher for B24-engine.
 // First run: installs dependencies and builds. Later runs: starts the server and opens the browser.
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { platform } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -24,6 +24,9 @@ if (!existsSync(path.join(root, "node_modules"))) {
 }
 if (!existsSync(path.join(root, ".next", "BUILD_ID"))) {
   console.log("\n[2/2] Building the app (first run only)...");
+  // A leftover .next from an older copy (or `next dev`) holds generated types for pages that
+  // no longer exist, which fails the type check. Start the build from a clean folder.
+  rmSync(path.join(root, ".next"), { recursive: true, force: true });
   if (!run("npm", ["run", "build"])) process.exit(1);
 }
 
