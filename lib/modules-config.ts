@@ -22,7 +22,9 @@ export type ModuleId =
   | "exposure"
   | "origin"
   | "webtech"
-  | "ports-passive";
+  | "ports-passive"
+  | "admin-panels"
+  | "nuclei-info";
 
 /** passive: nothing is sent to the target. light: a few normal page loads. active: many requests to the target. */
 export type Tier = "passive" | "light" | "active";
@@ -61,7 +63,7 @@ const HOSTS: TargetKind[] = ["domain", "url", "ip"];
 export const MODULES: ModuleDef[] = [
   {
     id: "subdomains",
-    title: "Subdomain Enumeration",
+    title: "Subdomains",
     group: "Recon",
     tier: "passive",
     description:
@@ -70,13 +72,17 @@ export const MODULES: ModuleDef[] = [
     sources: ["crt.sh", "CertSpotter", "HackerTarget", "AlienVault OTX", "Anubis", "RapidDNS", "urlscan.io", "ThreatMiner", "Wayback Machine", "Sonar"],
     bulkLimit: 20,
     options: [
+      { key: "tools", label: "Use installed subfinder / assetfinder / findomain", type: "boolean", default: true },
+      { key: "dnsBrute", label: "DNS brute force (built-in wordlist)", type: "boolean", default: true },
+      { key: "bruteSize", label: "Brute-force wordlist", type: "select", default: "small", choices: [{ value: "small", label: "Small (150 words)" }, { value: "large", label: "Large (all words)" }] },
       { key: "resolve", label: "Resolve DNS", type: "boolean", default: true },
       { key: "httpStatus", label: "HTTP status per host (light: one request per host)", type: "boolean", default: true },
+      { key: "screenshots", label: "Screenshots of live hosts (active: loads each page in Chromium)", type: "boolean", default: false },
     ],
   },
   {
     id: "dns",
-    title: "DNS Records",
+    title: "DNS",
     group: "Recon",
     tier: "passive",
     description: "A, AAAA, CNAME, MX, NS, TXT, SOA, CAA and SRV records, plus SPF, DMARC, DKIM, MTA-STS, DNSSEC and services identified from TXT records.",
@@ -86,7 +92,7 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "whois",
-    title: "WHOIS / RDAP",
+    title: "WHOIS",
     group: "Recon",
     tier: "passive",
     description: "Registrar, registration and expiry dates, domain age, statuses, name servers, DNSSEC and contacts. For IPs: network range, owner and abuse contact.",
@@ -96,7 +102,7 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "ct",
-    title: "Certificate Transparency",
+    title: "Certificates",
     group: "Recon",
     tier: "passive",
     description: "Every certificate logged for the domain: issuers over time, validity, wildcard usage and all names (SANs) found on them.",
@@ -136,7 +142,7 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "ports-passive",
-    title: "Exposed Services (passive)",
+    title: "Exposed Services",
     group: "Recon",
     tier: "passive",
     description: "Open ports, service banners, hostnames and known CVEs for the target's IPs from Shodan InternetDB's cached index. Nothing is sent to the target.",
@@ -146,7 +152,7 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "cloud",
-    title: "Cloud & CDN Mapping",
+    title: "Cloud & CDN",
     group: "Recon",
     tier: "passive",
     description: "Which cloud or CDN each IP belongs to, from the IP ranges the providers publish, with region and service where available.",
@@ -186,7 +192,7 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "osint",
-    title: "OSINT Harvester",
+    title: "Web OSINT",
     group: "OSINT",
     tier: "light",
     description: "Emails, phone numbers, social profiles, page authors, geo tags and usernames from the site's own pages (Uscrapper logic).",
@@ -201,7 +207,7 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "emails",
-    title: "Email Harvester",
+    title: "Emails",
     group: "OSINT",
     tier: "light",
     description: "Corporate, role and staff addresses for the domain from its website, WHOIS/RDAP and structured data; detects the address pattern and suggests addresses for people named on the site.",
@@ -231,7 +237,7 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "waf",
-    title: "WAF / CDN Detection",
+    title: "WAF / CDN",
     group: "Active",
     tier: "light",
     description: "Loads the homepage once and matches headers, cookies, CNAMEs and IP ranges against known WAF and CDN signatures. No payloads are sent.",
@@ -241,7 +247,7 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "js",
-    title: "JS Crawler",
+    title: "JS Files",
     group: "Active",
     tier: "active",
     description: "Crawls the site within scope, collects every JavaScript file (script tags, imports, chunks, source maps) and extracts endpoints and strings that look like keys or tokens.",
@@ -256,7 +262,7 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "dirs",
-    title: "Directory & Admin Finder",
+    title: "Directories",
     group: "Active",
     tier: "active",
     description: "Content discovery over a built-in wordlist (dirsearch / feroxbuster style) with soft-404 filtering and recursion; login and admin panels are listed separately.",
@@ -282,7 +288,7 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "origin",
-    title: "Origin IP Finder",
+    title: "Origin IP",
     group: "Active",
     tier: "active",
     description:
@@ -293,13 +299,33 @@ export const MODULES: ModuleDef[] = [
   },
   {
     id: "exposure",
-    title: "Exposure & Misconfig",
+    title: "Exposure",
     group: "Active",
     tier: "active",
     description: "Checks for exposed files (.git, .env, backups), debug and status pages, API docs, directory listing, CORS, cookie flags, TLS and security headers. Each finding comes with an explanation.",
     accepts: HOSTS,
     sources: ["Target website"],
     bulkLimit: 10,
+  },
+  {
+    id: "admin-panels",
+    title: "Admin Panels",
+    group: "Active",
+    tier: "active",
+    description: "Checks about 200 known admin, login and control-panel paths (WordPress, phpMyAdmin, Grafana, Jenkins, GitLab, cPanel, VPN portals…) and names the product when it can.",
+    accepts: NAMES,
+    sources: ["Target website (path requests)"],
+    bulkLimit: 10,
+  },
+  {
+    id: "nuclei-info",
+    title: "nuclei (info only)",
+    group: "Active",
+    tier: "active",
+    description: "Runs the installed nuclei with info-severity technology and panel templates only. It is an information-gathering step, not a vulnerability scan. Requires nuclei on this machine.",
+    accepts: NAMES,
+    sources: ["nuclei (local install)", "ProjectDiscovery templates"],
+    bulkLimit: 5,
   },
 ];
 

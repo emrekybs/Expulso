@@ -1,14 +1,15 @@
 {
-  "name": "expulso-cti",
+  "name": "b24-engine",
   "version": "2.0.0",
   "private": true,
-  "description": "Expulso — CTI analistleri için çevrimiçi keşif ve bilgi toplama paneli",
+  "description": "B24-engine — local recon & OSINT workbench",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node --conditions=react-server --experimental-strip-types --test tests/*.test.ts"
+    "test": "node --conditions=react-server --experimental-strip-types --test tests/*.test.ts",
+    "launch": "node scripts/launch.mjs"
   },
   "engines": {
     "node": ">=20"
@@ -17,6 +18,7 @@
     "cheerio": "1.2.0",
     "lucide-react": "1.62.0",
     "next": "16.4.3",
+    "playwright": "^1.63.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "server-only": "^0.0.1"

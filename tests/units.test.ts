@@ -200,3 +200,52 @@ test("assessment: score drops with severity, grade and priorities are ordered", 
   assert.equal(bad.coverage.failed, 1);
   assert.equal(bad.counts.high, 1);
 });
+
+// ---------------- B24-engine: nuclei info-only parser, screenshots, wordlist ----------------
+import { parseNucleiJsonl } from "../lib/modules/nuclei-info.ts";
+import { shotFileName } from "../lib/screenshot.ts";
+import { SUB_WORDS } from "../lib/modules/sub-words.ts";
+
+test("nuclei parser keeps info detections and drops anything else", () => {
+  const hits = parseNucleiJsonl([
+    JSON.stringify({ "template-id": "tech-detect", info: { name: "Wappalyzer Technology Detection", severity: "info", tags: ["tech"] }, "matched-at": "https://a.example" }),
+    JSON.stringify({ "template-id": "wp-login", info: { name: "WordPress Login", severity: "info", tags: "panel,wordpress" }, "matched-at": "https://a.example/wp-login.php" }),
+    JSON.stringify({ "template-id": "cve-x", info: { name: "Some CVE", severity: "high", tags: "cve" }, "matched-at": "https://a.example" }),
+    "not json",
+  ]);
+  assert.equal(hits.length, 2);
+  assert.deepEqual(hits[1].tags, ["panel", "wordpress"]);
+});
+
+test("screenshot file names are safe and deterministic", () => {
+  assert.equal(shotFileName("api.example.com", "https"), "api.example.com_https.png");
+  assert.equal(shotFileName("a/b..c", "http"), "a_b..c_http.png");
+});
+
+test("built-in wordlist has no duplicates and no empty entries", () => {
+  assert.ok(SUB_WORDS.length > 200);
+  assert.equal(new Set(SUB_WORDS).size, SUB_WORDS.length);
+  assert.ok(SUB_WORDS.every((w) => /^[a-z0-9-]+$/.test(w)));
+});
+
+// ---------------- Asset inventory ----------------
+import { buildInventory, ASSET_CATEGORIES } from "../lib/inventory.ts";
+
+test("inventory maps module output into the 11 asset categories", () => {
+  const inv = buildInventory([
+    { id: "subdomains", title: "Subdomains", ok: true, data: { entries: [{ host: "api.example.com", ips: ["1.2.3.4"], cname: "x.cloudfront.net", resolved: true, http: { status: 200, title: "API" } }] } },
+    { id: "ports-passive", title: "Exposed Services", ok: true, data: { hosts: [{ ip: "1.2.3.4", ports: [{ port: 3389, label: "RDP" }, { port: 443, label: "HTTPS" }], cves: ["CVE-2021-1"] }] } },
+    { id: "admin-panels", title: "Admin Panels", ok: true, data: { panels: [{ url: "https://example.com/wp-login.php", product: "WordPress", status: 200, loginForm: true }] } },
+    { id: "dirs", title: "Directories", ok: true, data: { hits: [{ path: "/.env", url: "https://example.com/.env", status: 200, title: "" }, { path: "/about", status: 200, title: "About" }] } },
+    { id: "js", title: "JS", ok: true, data: { endpoints: [{ value: "/api/v1/users", type: "API", file: "main.js" }, { value: "/img/a.png", type: "Path", file: "main.js" }], secrets: [] } },
+  ]);
+  assert.equal(inv.subdomain.length, 1);
+  assert.equal(inv.ip.length, 1, "IP is de-duplicated across modules");
+  assert.equal(inv.port.length, 2);
+  assert.equal(inv.exposed.length, 2, "RDP is risky, plus the CVE line");
+  assert.equal(inv.admin.length, 1);
+  assert.equal(inv.sensitive.length, 1, "/.env is sensitive, /about is not");
+  assert.equal(inv.api.length, 1, "only API-type endpoints count");
+  assert.equal(inv.cloud.length, 1, "CNAME to CloudFront is a cloud asset");
+  assert.equal(ASSET_CATEGORIES.length, 11);
+});

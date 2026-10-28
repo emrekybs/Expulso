@@ -6,14 +6,14 @@ import PwaRegister from "@/components/PwaRegister";
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Recon Panel",
+  title: "B24-engine",
   description: "Passive recon & OSINT workspace",
-  applicationName: "Recon Panel",
+  applicationName: "B24-engine",
   icons: {
     icon: [{ url: "/icons/favicon-64.png", sizes: "64x64", type: "image/png" }, { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
     apple: "/icons/apple-touch-icon.png",
   },
-  appleWebApp: { capable: true, title: "Recon Panel", statusBarStyle: "black-translucent" },
+  appleWebApp: { capable: true, title: "B24-engine", statusBarStyle: "black-translucent" },
 };
 
 export const viewport: Viewport = {

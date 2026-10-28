@@ -57,6 +57,8 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         <nav className="nav">
           <Item href="/" icon={Icon.overview({ size: 18 })} label="Overview" />
           <Item href="/full-scan" icon={Icon.fullscan({ size: 18 })} label="Full Scan" />
+          <Item href="/assets" icon={Icon.search({ size: 18 })} label="Asset Inventory" />
+          <Item href="/tools" icon={Icon.tools({ size: 18 })} label="Tools" />
           <Item href="/logs" icon={Icon.logs({ size: 18 })} label="Logs" />
           {GROUPS.map((g: Group) => (
             <div className="nav-group" key={g}>

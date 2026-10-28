@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Recon Panel",
-    short_name: "Recon",
-    description: "Domain recon and OSINT workspace",
+    name: "B24-engine",
+    short_name: "B24-engine",
+    description: "B24-engine: local domain recon and OSINT workbench",
     start_url: "/",
     scope: "/",
     display: "standalone",

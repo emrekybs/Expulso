@@ -23,10 +23,13 @@ import { runExposure } from "./modules/exposure.ts";
 import { runOrigin } from "./modules/origin.ts";
 import { runWebTech } from "./modules/webtech.ts";
 import { runPortsPassive } from "./modules/ports-passive.ts";
+import { runAdminPanels } from "./modules/admin-panels.ts";
+import { runNucleiInfo } from "./modules/nuclei-info.ts";
 
 type Opts = Record<string, unknown>;
 
-const MODULE_TIMEOUT_MS = 50_000;
+// Local tool: no serverless limit, but one stuck module must not block the scan forever.
+const MODULE_TIMEOUT_MS = 300_000;
 
 function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
@@ -39,7 +42,15 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
 }
 
 const RUNNERS: Record<ModuleId, (t: ParsedTarget, o: Opts) => Promise<ModuleOutput>> = {
-  subdomains: (t, o) => runSubdomains(t, { resolve: o.resolve !== false, httpStatus: o.httpStatus === true }),
+  subdomains: (t, o) =>
+    runSubdomains(t, {
+      resolve: o.resolve !== false,
+      httpStatus: o.httpStatus !== false,
+      tools: o.tools !== false,
+      dnsBrute: o.dnsBrute !== false,
+      bruteSize: o.bruteSize === "large" ? "large" : "small",
+      screenshots: o.screenshots === true,
+    }),
   dns: (t) => runDns(t),
   whois: (t) => runWhois(t),
   ct: (t) => runCt(t),
@@ -60,6 +71,8 @@ const RUNNERS: Record<ModuleId, (t: ParsedTarget, o: Opts) => Promise<ModuleOutp
   origin: (t) => runOrigin(t),
   webtech: (t) => runWebTech(t),
   "ports-passive": (t) => runPortsPassive(t),
+  "admin-panels": (t) => runAdminPanels(t),
+  "nuclei-info": (t) => runNucleiInfo(t),
 };
 
 export interface RunResult {

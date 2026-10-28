@@ -23,6 +23,8 @@ import type { ExposureData } from "@/lib/modules/exposure";
 import type { OriginData } from "@/lib/modules/origin";
 import type { WebTechData } from "@/lib/modules/webtech";
 import type { PortsData } from "@/lib/modules/ports-passive";
+import type { AdminPanelsData } from "@/lib/modules/admin-panels";
+import type { NucleiData } from "@/lib/modules/nuclei-info";
 
 function statusBadge(status: number | null | undefined) {
   if (status == null) return <Badge>—</Badge>;
@@ -42,8 +44,10 @@ function Subdomains({ d }: { d: SubData }) {
     { key: "host", header: "Subdomain", render: (r) => <span className="value">{r.host}{r.takeover && <Badge kind="orange"> takeover</Badge>}</span>, value: (r) => r.host, sortable: true },
     { key: "status", header: "Status", render: (r) => (r.http ? <>{statusBadge(r.http.status)}{r.http.redirect && <div className="small muted">→ {r.http.redirect}</div>}</> : r.resolved === false ? <Badge>unresolved</Badge> : r.resolved ? (r.http === null ? <Badge kind="warn">no response</Badge> : <Badge kind="ok">resolved</Badge>) : <Badge>—</Badge>) },
     { key: "title", header: "Title", render: (r) => <span className="muted">{r.http?.title || "—"}</span> },
-    { key: "ip", header: "IP / CNAME", render: (r) => <span className="muted wrap-anywhere">{r.cname ? `CNAME ${r.cname}` : r.ips.join(", ") || "—"}</span> },
+    { key: "ip", header: "IP address", render: (r) => (r.ips.length ? <span className="value mono wrap-anywhere">{r.ips.join(", ")}</span> : <span className="muted">—</span>), value: (r) => r.ips[0] ?? "", sortable: true },
+    { key: "cname", header: "CNAME", render: (r) => <span className="muted small wrap-anywhere">{r.cname || "—"}</span> },
     { key: "server", header: "Server", render: (r) => <span className="muted">{r.http?.server || "—"}</span> },
+    { key: "shot", header: "Screenshot", render: (r) => (r.shot ? <a href={`/api/screenshots/${r.shot}`} target="_blank" rel="noreferrer"><img src={`/api/screenshots/${r.shot}`} alt={`${r.host} screenshot`} style={{ width: 120, height: 75, objectFit: "cover", objectPosition: "top", borderRadius: 6, border: "1px solid var(--border)" }} loading="lazy" /></a> : <span className="muted">—</span>) },
     { key: "sources", header: "Sources", render: (r) => <span className="muted small">{r.sources.join(", ")}</span> },
   ];
   const s = d.stats;
@@ -54,6 +58,7 @@ function Subdomains({ d }: { d: SubData }) {
         <Stat label="Live HTTP" value={s.live} sub={`${s.ok200} return 200`} accent="green" />
         <Stat label="Unique IPs" value={new Set(d.entries.flatMap((e) => e.ips)).size} accent="blue" />
         <Stat label="Takeover candidates" value={s.takeover} accent="orange" />
+        {s.screenshots > 0 && <Stat label="Screenshots" value={s.screenshots} accent="blue" />}
       </div>
       <Card title="Subdomains" count={s.total} actions={<ExportBar baseName={`subdomains_${d.domain}`} rows={d.entries.map((e) => ({ host: e.host, status: e.http?.status ?? "", title: e.http?.title ?? "", ip: e.ips.join(" "), cname: e.cname ?? "", takeover: e.takeover?.service ?? "", sources: e.sources.join(" ") }))} json={d} text={d.entries.map((e) => e.host).join("\n")} />} pad={false}>
         <DataTable rows={d.entries} columns={cols} filterKeys={(r) => `${r.host} ${r.ips.join(" ")} ${r.http?.title ?? ""} ${r.http?.server ?? ""}`} />
@@ -685,6 +690,55 @@ function Ports({ d }: { d: PortsData }) {
   );
 }
 
+/* ============================ Admin panels ============================ */
+function AdminPanels({ d }: { d: AdminPanelsData }) {
+  const cols: Column<AdminPanelsData["panels"][number]>[] = [
+    { key: "path", header: "Path", render: (r) => <a className="value-link wrap-anywhere" href={r.url} target="_blank" rel="noreferrer noopener">{r.path}</a> },
+    { key: "product", header: "Product", render: (r) => (r.product ? <Badge kind="orange">{r.product}</Badge> : <span className="muted">—</span>) },
+    { key: "status", header: "Status", render: (r) => statusBadge(r.status) },
+    { key: "loginForm", header: "Login form", render: (r) => (r.loginForm ? <Badge kind="ok">yes</Badge> : <span className="muted">no</span>) },
+    { key: "title", header: "Title", render: (r) => <span className="muted">{r.title || "—"}</span> },
+  ];
+  return (
+    <div className="stack">
+      <div className="grid grid-3">
+        <Stat label="Panels found" value={d.panels.length} accent="orange" />
+        <Stat label="Paths checked" value={d.tested} accent="silver" />
+        <Stat label="With login form" value={d.panels.filter((p) => p.loginForm).length} accent="blue" />
+      </div>
+      <Card title="Admin and login panels" count={d.panels.length} actions={<CopyBtn text={d.panels.map((p) => p.url).join("\n")} label="Copy URLs" />} pad={false}>
+        <DataTable rows={d.panels} columns={cols} filterKeys={(r) => `${r.path} ${r.product ?? ""} ${r.title}`} empty="No admin or login panels were found on the known paths." />
+      </Card>
+    </div>
+  );
+}
+
+/* ============================ nuclei (info only) ============================ */
+function NucleiInfo({ d }: { d: NucleiData }) {
+  return (
+    <div className="stack">
+      <div className="grid grid-3">
+        <Stat label="Detections" value={d.hits.length} accent="blue" />
+        <Stat label="Panel templates" value={d.hits.filter((h) => h.tags.includes("panel")).length} accent="orange" />
+        <Stat label="Tech templates" value={d.hits.filter((h) => h.tags.includes("tech")).length} accent="silver" />
+      </div>
+      <Card title="Information-gathering detections" count={d.hits.length} pad={false}>
+        <DataTable
+          rows={d.hits}
+          columns={[
+            { key: "name", header: "Detection", render: (r) => <span className="value">{r.name}</span> },
+            { key: "tags", header: "Tags", render: (r) => <span className="muted small">{r.tags.join(", ")}</span> },
+            { key: "matchedAt", header: "Matched at", render: (r) => <span className="muted small wrap-anywhere">{r.matchedAt}</span> },
+            { key: "extracted", header: "Extracted", render: (r) => <span className="muted small wrap-anywhere">{r.extracted.join(", ") || "—"}</span> },
+          ]}
+          filterKeys={(r) => `${r.name} ${r.tags.join(" ")}`}
+          empty="No technology or panel detections."
+        />
+      </Card>
+    </div>
+  );
+}
+
 /* ============================ Dispatch ============================ */
 export function renderModule(id: ModuleId, output: ModuleOutput): React.ReactNode {
   const data = output.data as never;
@@ -710,6 +764,8 @@ export function renderModule(id: ModuleId, output: ModuleOutput): React.ReactNod
     case "origin": return <Origin d={data} />;
     case "webtech": return <WebTech d={data} />;
     case "ports-passive": return <Ports d={data} />;
+    case "admin-panels": return <AdminPanels d={data} />;
+    case "nuclei-info": return <NucleiInfo d={data} />;
     default: return <pre className="hl">{JSON.stringify(output.data, null, 2)}</pre>;
   }
 }

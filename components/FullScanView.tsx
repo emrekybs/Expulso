@@ -8,6 +8,8 @@ import { buildHtmlReport } from "@/lib/client/report";
 import { download, stamp, slug } from "@/lib/client/export";
 import { renderModule } from "./renderers";
 import AssessmentCard from "./AssessmentCard";
+import InventoryCard from "./InventoryCard";
+import { buildInventory } from "@/lib/inventory";
 import { computeAssessment } from "@/lib/assessment";
 import { Card, Stat, Findings, Alert, Badge } from "./ui";
 import { Icon } from "./icons";
@@ -196,6 +198,7 @@ function TargetResult({ run, mode, expected, openMod, setOpenMod }: { run: Targe
   return (
     <div className="stack">
       <AssessmentCard a={computeAssessment(res.modules ?? [])} />
+      <InventoryCard inv={buildInventory(res.modules ?? [])} title="Discovered assets" target={res.meta?.target} />
 
       {/* progress grid */}
       <Card title={run.target} count={`${okMods.length}/${res.modules?.length ?? 0} ok`} pad={false}>
