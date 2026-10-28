@@ -1,68 +1,41 @@
 import { NextResponse } from "next/server";
-import { getModule, type ModuleId } from "@/lib/modules-config";
-import { parseTarget, type ParsedTarget } from "@/lib/target";
-import { UserError } from "@/lib/net";
-import { runUscrapper } from "@/lib/modules/uscrapper";
-import { runSubdomains } from "@/lib/modules/subdomains";
-import { runDns } from "@/lib/modules/dns";
-import { runWhois } from "@/lib/modules/whois";
-import { runGeoip } from "@/lib/modules/geoip";
-import { runReverseDns, runReverseIp, runPortScan, runTraceroute } from "@/lib/modules/network";
-import { runSecurity } from "@/lib/modules/security";
+import crypto from "node:crypto";
+import { getModule } from "@/lib/modules-config";
+import { parseTarget } from "@/lib/target";
+import { runModule } from "@/lib/run-module";
+import type { ScanResponse } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-type Options = Record<string, unknown>;
-
-const RUNNERS: Record<ModuleId, (t: ParsedTarget, o: Options) => Promise<unknown>> = {
-  uscrapper: (t, o) =>
-    runUscrapper(t, {
-      crawl: Number(o.crawl) || 0,
-      threads: Number(o.threads) || 4,
-      nonStrict: o.nonStrict === true,
-      keywords: Array.isArray(o.keywords) ? o.keywords.map(String) : [],
-    }),
-  subdomain: (t, o) => runSubdomains(t, { resolve: o.resolve !== false }),
-  dns: (t) => runDns(t),
-  whois: (t) => runWhois(t),
-  "reverse-ip": (t) => runReverseIp(t),
-  geoip: (t) => runGeoip(t),
-  "reverse-dns": (t) => runReverseDns(t),
-  traceroute: (t) => runTraceroute(t),
-  "port-scan": (t) => runPortScan(t),
-  security: (t) => runSecurity(t),
-};
-
 export async function POST(req: Request, ctx: { params: Promise<{ module: string }> }) {
+  const requestId = crypto.randomUUID().slice(0, 8);
   const { module } = await ctx.params;
   const def = getModule(module);
-  if (!def) return NextResponse.json({ ok: false, error: "Bilinmeyen modül." }, { status: 404 });
+  if (!def) return json({ ok: false, error: "Unknown module.", code: "unknown_module", requestId }, 404);
 
-  let body: { target?: unknown; options?: Options };
+  let body: { target?: unknown; options?: Record<string, unknown> };
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ ok: false, error: "Geçersiz istek gövdesi." }, { status: 400 });
+    return json({ ok: false, error: "Invalid request body.", code: "bad_request", requestId }, 400);
   }
   const parsed = parseTarget(String(body.target ?? ""));
-  if ("error" in parsed) return NextResponse.json({ ok: false, error: parsed.error }, { status: 400 });
-  if (!def.accepts.includes(parsed.kind)) {
-    return NextResponse.json({ ok: false, error: `${def.short} modülü bu hedef türünü desteklemiyor.` }, { status: 400 });
-  }
+  if ("error" in parsed) return json({ ok: false, error: parsed.error, code: "invalid_target", requestId }, 400);
+  if (!def.accepts.includes(parsed.kind))
+    return json({ ok: false, error: `${def.title} does not accept a ${parsed.kind} target.`, code: "not_applicable", requestId, skipped: true }, 400);
 
-  const started = Date.now();
-  try {
-    const data = await RUNNERS[def.id](parsed, body.options ?? {});
-    return NextResponse.json({
-      ok: true,
-      data,
-      meta: { module: def.id, target: parsed.host, kind: parsed.kind, durationMs: Date.now() - started, scannedAt: new Date().toISOString() },
-    });
-  } catch (e) {
-    const message = e instanceof UserError ? e.message : "Beklenmeyen bir hata oluştu. Lütfen daha sonra tekrar deneyin.";
-    if (!(e instanceof UserError)) console.error(`[${def.id}]`, e);
-    return NextResponse.json({ ok: false, error: message }, { status: e instanceof UserError ? 422 : 500 });
+  const scannedAt = new Date().toISOString();
+  const run = await runModule(def.id, parsed, body.options ?? {});
+  if (!run.ok || !run.result) {
+    console.log(`[scan ${requestId}] ${def.id} ${parsed.host} FAILED (${run.code}) in ${run.durationMs}ms: ${run.error}`);
+    return json({ ok: false, error: run.error ?? "Failed.", code: run.code ?? "error", requestId, skipped: run.skipped }, run.code === "internal_error" ? 500 : 422);
   }
+  console.log(`[scan ${requestId}] ${def.id} ${parsed.host} OK in ${run.durationMs}ms`);
+  return json({ ok: true, result: run.result, meta: { module: def.id, target: parsed.host, kind: parsed.kind, durationMs: run.durationMs, scannedAt, requestId } });
+}
+
+function json(payload: ScanResponse, status = 200) {
+  return NextResponse.json(payload, { status });
 }

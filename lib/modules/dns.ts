@@ -1,92 +1,24 @@
-import { fetchJson, UserError } from "../net.ts";
+import { UserError } from "../net.ts";
+import { doh, RR_TYPES, type DnsRecord, type RRType } from "../dns-core.ts";
 import type { ParsedTarget } from "../target.ts";
+import type { Finding, ModuleOutput } from "../types.ts";
 
-export const RR_TYPES = ["A", "AAAA", "CNAME", "MX", "NS", "TXT", "SOA", "CAA"] as const;
-export type RRType = (typeof RR_TYPES)[number] | "PTR";
-
-const TYPE_NUM: Record<number, RRType> = { 1: "A", 2: "NS", 5: "CNAME", 6: "SOA", 12: "PTR", 15: "MX", 16: "TXT", 28: "AAAA", 257: "CAA" };
-
-export interface DnsRecord {
-  type: RRType;
-  name: string;
-  ttl: number;
-  value: string;
-  priority?: number;
-}
-
-interface DohResponse {
-  Status: number;
-  Answer?: { name: string; type: number; TTL: number; data: string }[];
-}
-
-const RESOLVERS = [
-  (n: string, t: string) => `https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(n)}&type=${t}`,
-  (n: string, t: string) => `https://dns.google/resolve?name=${encodeURIComponent(n)}&type=${t}`,
-];
-
-/** DNS-over-HTTPS sorgusu (Cloudflare, yedek: Google). */
-export async function doh(name: string, type: RRType): Promise<{ status: number; records: DnsRecord[] }> {
-  let lastErr: unknown;
-  for (const r of RESOLVERS) {
-    try {
-      const j = await fetchJson<DohResponse>(r(name, type), 8000, { accept: "application/dns-json" });
-      const records = (j.Answer ?? [])
-        .filter((a) => TYPE_NUM[a.type] === type)
-        .map((a): DnsRecord => {
-          const name = a.name.replace(/\.$/, "");
-          if (type === "MX") {
-            const [p, ...rest] = a.data.split(" ");
-            return { type, name, ttl: a.TTL, priority: Number(p), value: rest.join(" ").replace(/\.$/, "") };
-          }
-          if (type === "TXT") return { type, name, ttl: a.TTL, value: a.data.replace(/^"|"$/g, "").replace(/"\s*"/g, "") };
-          return { type, name, ttl: a.TTL, value: a.data.replace(/\.$/, "") };
-        });
-      return { status: j.Status, records };
-    } catch (e) {
-      lastErr = e;
-    }
-  }
-  throw new UserError(`DNS sorgusu başarısız oldu${lastErr instanceof Error ? ` (${lastErr.message})` : ""}.`);
-}
-
-export async function resolveA(host: string): Promise<string[]> {
-  const r = await doh(host, "A");
-  return r.records.map((x) => x.value);
-}
-
-export function reverseName(ip: string): string {
-  if (ip.includes(":")) {
-    const full = expandV6(ip).replace(/:/g, "");
-    return [...full].reverse().join(".") + ".ip6.arpa";
-  }
-  return ip.split(".").reverse().join(".") + ".in-addr.arpa";
-}
-
-function expandV6(ip: string): string {
-  const [head, tail = ""] = ip.split("::");
-  const h = head ? head.split(":") : [];
-  const t = tail ? tail.split(":") : [];
-  const mid = Array(8 - h.length - t.length).fill("0");
-  return [...h, ...mid, ...t].map((g) => g.padStart(4, "0")).join(":");
-}
-
-export async function ptr(ip: string): Promise<string[]> {
-  const r = await doh(reverseName(ip), "PTR");
-  return r.records.map((x) => x.value);
-}
-
-export interface EmailSecurity {
-  spf: { record: string | null; policy: string | null; verdict: "iyi" | "orta" | "zayıf" | "yok"; note: string };
-  dmarc: { record: string | null; policy: string | null; verdict: "iyi" | "orta" | "zayıf" | "yok"; note: string };
+export interface MailAuth {
+  spf: { record: string | null; policy: string; verdict: Verdict; note: string };
+  dmarc: { record: string | null; policy: string; verdict: Verdict; note: string };
+  dkim: { selectors: string[]; note: string };
+  mtaSts: { present: boolean; note: string };
+  dnssec: { signed: boolean; note: string };
   provider: string | null;
 }
+type Verdict = "good" | "fair" | "weak" | "missing";
 
-export interface DnsResult {
+export interface DnsData {
   domain: string;
   nxdomain: boolean;
   records: DnsRecord[];
   counts: Partial<Record<RRType, number>>;
-  emailSecurity: EmailSecurity;
+  mail: MailAuth;
   services: { name: string; evidence: string }[];
 }
 
@@ -95,12 +27,14 @@ const MX_PROVIDERS: [RegExp, string][] = [
   [/outlook\.com$|protection\.outlook\.com$/i, "Microsoft 365"],
   [/yandex\.(net|ru)$/i, "Yandex 360"],
   [/zoho\.(com|eu)$/i, "Zoho Mail"],
-  [/protonmail\.ch$/i, "Proton Mail"],
+  [/protonmail\.ch$|proton\.me$/i, "Proton Mail"],
   [/mimecast\.com$/i, "Mimecast"],
   [/pphosted\.com$/i, "Proofpoint"],
   [/icloud\.com$/i, "iCloud Mail"],
   [/mailgun\.org$/i, "Mailgun"],
   [/amazonaws\.com$/i, "Amazon SES"],
+  [/secureserver\.net$/i, "GoDaddy"],
+  [/yandex/i, "Yandex"],
 ];
 
 const TXT_SERVICES: [RegExp, string][] = [
@@ -120,39 +54,42 @@ const TXT_SERVICES: [RegExp, string][] = [
   [/^hubspot/i, "HubSpot"],
   [/^cisco-ci-domain-verification/i, "Cisco Webex"],
   [/^openai-domain-verification/i, "OpenAI"],
-  [/^anthropic-domain-verification/i, "Anthropic"],
-  [/^brevo-code/i, "Brevo"],
-  [/^mailru-verification/i, "Mail.ru"],
-  [/^dropbox-domain-verification/i, "Dropbox"],
   [/^notion-domain-verification/i, "Notion"],
+  [/^dropbox-domain-verification/i, "Dropbox"],
+  [/^mailru-verification/i, "Mail.ru"],
+  [/^brevo-code/i, "Brevo"],
+  [/^logmein-verification/i, "GoTo / LogMeIn"],
+  [/^citrix-verification/i, "Citrix"],
 ];
 
-export function analyzeEmailSecurity(txt: string[], dmarcTxt: string[], mx: DnsRecord[]): EmailSecurity {
+const COMMON_DKIM = ["selector1", "selector2", "google", "default", "k1", "k2", "dkim", "mail", "s1", "s2", "smtp", "mandrill", "mxvault", "zoho", "zmail", "pic", "scph0819", "sig1"];
+
+export function analyzeMail(txt: string[], dmarcTxt: string[], mx: DnsRecord[], dkimSelectors: string[], dnssec: boolean): MailAuth {
   const spfRec = txt.find((t) => /^v=spf1\b/i.test(t)) ?? null;
-  let spf: EmailSecurity["spf"];
-  if (!spfRec) spf = { record: null, policy: null, verdict: "yok", note: "SPF kaydı yok: alan adı adına sahte e-posta gönderilmesi kolaylaşır." };
+  let spf: MailAuth["spf"];
+  if (!spfRec) spf = { record: null, policy: "—", verdict: "missing", note: "No SPF record. Anyone can send email claiming to be from this domain more easily." };
   else {
     const all = spfRec.match(/([+~?-])?all\b/i);
     const q = all ? (all[1] ?? "+") : null;
-    const map: Record<string, [EmailSecurity["spf"]["verdict"], string, string]> = {
-      "-": ["iyi", "Katı (-all)", "Yetkisiz sunuculardan gelen e-postalar reddedilir."],
-      "~": ["orta", "Yumuşak (~all)", "Yetkisiz e-postalar işaretlenir ancak reddedilmez."],
-      "?": ["zayıf", "Nötr (?all)", "Yetkisiz e-postalar için herhangi bir işlem yapılmaz."],
-      "+": ["zayıf", "Herkese izin (+all)", "Tehlikeli: tüm sunucular bu alan adı adına e-posta gönderebilir."],
+    const map: Record<string, [Verdict, string, string]> = {
+      "-": ["good", "-all (hard fail)", "Mail from unauthorised servers is rejected."],
+      "~": ["fair", "~all (soft fail)", "Unauthorised mail is marked but usually still delivered."],
+      "?": ["weak", "?all (neutral)", "No action is taken on unauthorised mail."],
+      "+": ["weak", "+all (pass all)", "Dangerous: any server may send mail as this domain."],
     };
-    const [verdict, policy, note] = q ? map[q] : ["orta" as const, "Belirtilmemiş", "SPF kaydında 'all' mekanizması bulunmuyor."];
+    const [verdict, policy, note] = q ? map[q] : (["fair", "no 'all' mechanism", "The SPF record has no 'all' mechanism."] as [Verdict, string, string]);
     spf = { record: spfRec, policy, verdict, note };
   }
 
   const dmarcRec = dmarcTxt.find((t) => /^v=DMARC1/i.test(t)) ?? null;
-  let dmarc: EmailSecurity["dmarc"];
-  if (!dmarcRec) dmarc = { record: null, policy: null, verdict: "yok", note: "DMARC kaydı yok: kimlik sahteciliği (spoofing) girişimlerine karşı koruma eksik." };
+  let dmarc: MailAuth["dmarc"];
+  if (!dmarcRec) dmarc = { record: null, policy: "—", verdict: "missing", note: "No DMARC record. Spoofing protection is incomplete." };
   else {
     const p = dmarcRec.match(/\bp=(\w+)/i)?.[1]?.toLowerCase() ?? "none";
-    const map: Record<string, [EmailSecurity["dmarc"]["verdict"], string, string]> = {
-      reject: ["iyi", "Reddet (reject)", "Doğrulamayı geçemeyen e-postalar reddedilir."],
-      quarantine: ["orta", "Karantina (quarantine)", "Doğrulamayı geçemeyen e-postalar spam klasörüne gönderilir."],
-      none: ["zayıf", "İzleme (none)", "Yalnızca raporlama yapılır, sahte e-postalar engellenmez."],
+    const map: Record<string, [Verdict, string, string]> = {
+      reject: ["good", "p=reject", "Mail that fails authentication is rejected."],
+      quarantine: ["fair", "p=quarantine", "Mail that fails authentication goes to spam."],
+      none: ["weak", "p=none", "Monitoring only; spoofed mail is not blocked."],
     };
     const [verdict, policy, note] = map[p] ?? map.none;
     dmarc = { record: dmarcRec, policy, verdict, note };
@@ -166,33 +103,77 @@ export function analyzeEmailSecurity(txt: string[], dmarcTxt: string[], mx: DnsR
       break;
     }
   }
-  return { spf, dmarc, provider };
+  return {
+    spf,
+    dmarc,
+    dkim: { selectors: dkimSelectors, note: dkimSelectors.length ? `Found ${dkimSelectors.length} DKIM selector(s) from a list of common names.` : "No common DKIM selectors answered (custom selectors may still exist)." },
+    mtaSts: { present: false, note: "" },
+    dnssec: { signed: dnssec, note: dnssec ? "DNS answers for this domain are signed." : "DNS answers are not cryptographically signed (DNSSEC off)." },
+    provider,
+  };
 }
 
 export function detectServices(txt: string[]): { name: string; evidence: string }[] {
   const out = new Map<string, string>();
-  for (const t of txt) for (const [re, name] of TXT_SERVICES) if (re.test(t) && !out.has(name)) out.set(name, t);
+  for (const t of txt) for (const [re, name] of TXT_SERVICES) if (re.test(t) && !out.has(name)) out.set(name, t.length > 80 ? t.slice(0, 77) + "…" : t);
   return [...out].map(([name, evidence]) => ({ name, evidence }));
 }
 
-export async function runDns(t: ParsedTarget): Promise<DnsResult> {
-  if (t.kind === "ip" || t.kind === "cidr") throw new UserError("DNS kayıtları için bir alan adı girin. IP adresleri için Ters DNS modülünü kullanın.");
+function findings(d: DnsData): Finding[] {
+  const f: Finding[] = [];
+  if (d.mail.spf.verdict === "missing")
+    f.push({ severity: "medium", title: "No SPF record", detail: d.mail.spf.note, recommendation: "Publish an SPF record listing your legitimate senders, ending in -all or ~all." });
+  else if (d.mail.spf.verdict === "weak")
+    f.push({ severity: "low", title: `Weak SPF policy (${d.mail.spf.policy})`, detail: d.mail.spf.note, evidence: d.mail.spf.record ?? undefined, recommendation: "Use -all once every legitimate sender is listed." });
+  if (d.mail.dmarc.verdict === "missing")
+    f.push({ severity: "medium", title: "No DMARC record", detail: d.mail.dmarc.note, recommendation: "Publish _dmarc with p=quarantine or p=reject after reviewing reports." });
+  else if (d.mail.dmarc.verdict === "weak")
+    f.push({ severity: "medium", title: "DMARC policy is p=none", detail: d.mail.dmarc.note, evidence: d.mail.dmarc.record ?? undefined, recommendation: "Move to p=quarantine then p=reject." });
+  if (d.counts.MX && !d.mail.dnssec.signed)
+    f.push({ severity: "low", title: "DNSSEC not enabled", detail: d.mail.dnssec.note, recommendation: "Enable DNSSEC at your DNS provider and add a DS record at the registrar." });
+  return f;
+}
+
+export async function runDns(t: ParsedTarget): Promise<ModuleOutput<DnsData>> {
+  if (t.kind === "ip" || t.kind === "cidr") throw new UserError("DNS Records needs a domain. Use Reverse DNS for IP addresses.");
   const domain = t.host;
-  const results = await Promise.all(RR_TYPES.map((ty) => doh(domain, ty).catch(() => ({ status: -1, records: [] as DnsRecord[] }))));
+  const warnings: string[] = [];
+
+  const results = await Promise.all(RR_TYPES.map((ty) => doh(domain, ty).catch((e) => ({ status: -1, records: [] as DnsRecord[], err: e }))));
+  if (results.every((r) => (r as { status: number }).status === -1)) throw new UserError("Could not reach any DNS resolver.", "dns_failed");
   const dmarc = await doh(`_dmarc.${domain}`, "TXT").catch(() => ({ status: -1, records: [] as DnsRecord[] }));
-  if (results.every((r) => r.status === -1)) throw new UserError("DNS çözümleyicilerine ulaşılamadı.");
-  const nxdomain = results.some((r) => r.status === 3);
+  const dsRec = await doh(domain, "SOA").catch(() => null); // SOA presence sanity
+
   const records = results.flatMap((r) => r.records);
-  const counts: DnsResult["counts"] = {};
+  const nxdomain = results.some((r) => (r as { status: number }).status === 3) && records.length === 0;
+  if (nxdomain) throw new UserError(`${domain} does not exist (NXDOMAIN).`, "nxdomain");
+
+  const counts: DnsData["counts"] = {};
   for (const r of records) counts[r.type] = (counts[r.type] ?? 0) + 1;
   const txt = records.filter((r) => r.type === "TXT").map((r) => r.value);
   const mx = records.filter((r) => r.type === "MX").sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
-  return {
-    domain,
-    nxdomain,
-    records,
-    counts,
-    emailSecurity: analyzeEmailSecurity(txt, dmarc.records.map((r) => r.value), mx),
-    services: detectServices(txt),
-  };
+
+  // DKIM selectors (best effort, capped)
+  const dkimSelectors: string[] = [];
+  await Promise.all(
+    COMMON_DKIM.map(async (sel) => {
+      const r = await doh(`${sel}._domainkey.${domain}`, "TXT").catch(() => null);
+      if (r && r.records.some((x) => /v=DKIM1|k=rsa|p=/i.test(x.value))) dkimSelectors.push(sel);
+    }),
+  );
+
+  // MTA-STS and DNSSEC
+  const [mtaSts, dnssec] = await Promise.all([
+    doh(`_mta-sts.${domain}`, "TXT").then((r) => r.records.some((x) => /v=STSv1/i.test(x.value))).catch(() => false),
+    doh(domain, "DNSKEY" as RRType).then((r) => r.records.length > 0).catch(() => false),
+  ]);
+
+  const mail = analyzeMail(txt, dmarc.records.map((r) => r.value), mx, dkimSelectors.sort(), dnssec);
+  mail.mtaSts = { present: mtaSts, note: mtaSts ? "MTA-STS policy published." : "No MTA-STS policy (inbound mail can be downgraded to plaintext)." };
+  if (dmarc.status === -1) warnings.push("DMARC lookup failed; DMARC result may be incomplete.");
+
+  const data: DnsData = { domain, nxdomain: false, records, counts, mail, services: detectServices(txt) };
+  const summary = `${records.length} records · SPF ${mail.spf.verdict} · DMARC ${mail.dmarc.policy}${mail.provider ? ` · ${mail.provider}` : ""}`;
+  void dsRec;
+  return { summary, findings: findings(data), data, warnings };
 }

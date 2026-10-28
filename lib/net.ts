@@ -1,27 +1,29 @@
 import dns from "node:dns/promises";
 import net from "node:net";
 
-/** Kullanıcıya olduğu gibi gösterilebilecek (Türkçe) hata. */
-export class UserError extends Error {}
+/** An error whose message is safe and meaningful to show to the user. */
+export class UserError extends Error {
+  code: string;
+  constructor(message: string, code = "user_error") {
+    super(message);
+    this.code = code;
+  }
+}
 
 export const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15",
-  "Mozilla/5.0 (X11; Linux x86_64; rv:131.0) Gecko/20100101 Firefox/131.0",
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Mobile/15E148 Safari/604.1",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+  "Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0",
 ];
 
 export function randomUA(): string {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
-function ipv4ToInt(ip: string): number {
-  return ip.split(".").reduce((acc, o) => (acc << 8) + Number(o), 0) >>> 0;
-}
+const API_UA = "ReconPanel/1.0 (+passive recon)";
 
-function inV4Range(ip: string, base: string, bits: number): boolean {
-  const mask = bits === 0 ? 0 : (~0 << (32 - bits)) >>> 0;
-  return (ipv4ToInt(ip) & mask) === (ipv4ToInt(base) & mask);
+function v4int(ip: string): number {
+  return ip.split(".").reduce((acc, o) => acc * 256 + Number(o), 0);
 }
 
 const PRIVATE_V4: [string, number][] = [
@@ -38,39 +40,36 @@ const PRIVATE_V4: [string, number][] = [
 ];
 
 export function isPrivateIp(ip: string): boolean {
-  if (net.isIPv4(ip)) return PRIVATE_V4.some(([b, n]) => inV4Range(ip, b, n));
+  if (net.isIPv4(ip)) {
+    const n = v4int(ip);
+    return PRIVATE_V4.some(([b, bits]) => {
+      const size = 2 ** (32 - bits);
+      return Math.floor(n / size) === Math.floor(v4int(b) / size);
+    });
+  }
   const v6 = ip.toLowerCase();
   const mapped = v6.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
   if (mapped) return isPrivateIp(mapped[1]);
-  return (
-    v6 === "::" ||
-    v6 === "::1" ||
-    v6.startsWith("fc") ||
-    v6.startsWith("fd") ||
-    /^fe[89ab]/.test(v6) ||
-    v6.startsWith("ff")
-  );
+  return v6 === "::" || v6 === "::1" || v6.startsWith("fc") || v6.startsWith("fd") || /^fe[89ab]/.test(v6) || v6.startsWith("ff");
 }
 
-/** SSRF koruması: yerel / özel ağ adreslerine giden istekleri engeller. */
-export async function assertPublicHost(host: string): Promise<void> {
+/** SSRF guard: refuses hosts that resolve to loopback, private or link-local addresses. */
+export async function assertPublicHost(host: string): Promise<string[]> {
   const h = host.replace(/^\[|\]$/g, "");
   if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local")) {
-    throw new UserError("Yerel ağ adreslerine erişim engellendi.");
+    throw new UserError("Requests to local network names are blocked.", "blocked_host");
   }
   let addrs: string[];
-  if (net.isIP(h)) {
-    addrs = [h];
-  } else {
+  if (net.isIP(h)) addrs = [h];
+  else {
     try {
       addrs = (await dns.lookup(h, { all: true })).map((a) => a.address);
     } catch {
-      throw new UserError(`"${h}" alan adı çözümlenemedi (DNS kaydı bulunamadı).`);
+      throw new UserError(`${h} does not resolve (no DNS record).`, "nxdomain");
     }
   }
-  if (addrs.some(isPrivateIp)) {
-    throw new UserError("Özel veya yerel ağ adreslerine erişim güvenlik nedeniyle engellendi.");
-  }
+  if (addrs.some(isPrivateIp)) throw new UserError("Requests to private or internal addresses are blocked.", "blocked_host");
+  return addrs;
 }
 
 export async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = 15000): Promise<Response> {
@@ -79,18 +78,29 @@ export async function fetchWithTimeout(url: string, init: RequestInit = {}, ms =
   try {
     return await fetch(url, { ...init, signal: ctrl.signal, cache: "no-store" });
   } catch (e) {
-    if ((e as Error).name === "AbortError") throw new UserError("İstek zaman aşımına uğradı.");
+    if ((e as Error).name === "AbortError") throw new UserError(`Request timed out after ${Math.round(ms / 1000)} s.`, "timeout");
     throw e;
   } finally {
     clearTimeout(t);
   }
 }
 
-/** Güvenilir (sabit) üçüncü taraf API'ler için JSON isteği. */
+/** JSON request to a fixed third-party API (not user-controlled, so no SSRF check). */
 export async function fetchJson<T>(url: string, ms = 15000, headers: Record<string, string> = {}): Promise<T> {
-  const res = await fetchWithTimeout(url, { headers: { accept: "application/json", "user-agent": "Expulso-CTI/2.0", ...headers } }, ms);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return (await res.json()) as T;
+  const res = await fetchWithTimeout(url, { headers: { accept: "application/json", "user-agent": API_UA, ...headers } }, ms);
+  if (res.status === 429) throw new UserError("Rate limited by the source (HTTP 429).", "rate_limited");
+  if (!res.ok) throw new UserError(`Source returned HTTP ${res.status}.`, "upstream_error");
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new UserError("Source returned an invalid response.", "upstream_error");
+  }
+}
+
+export async function fetchText(url: string, ms = 15000, headers: Record<string, string> = {}): Promise<{ status: number; text: string }> {
+  const res = await fetchWithTimeout(url, { headers: { "user-agent": API_UA, ...headers } }, ms);
+  return { status: res.status, text: await res.text() };
 }
 
 export interface SafeResponse {
@@ -101,6 +111,7 @@ export interface SafeResponse {
   redirects: { url: string; status: number }[];
   body: string;
   truncated: boolean;
+  timeMs: number;
 }
 
 async function readLimited(res: Response, maxBytes: number): Promise<{ text: string; truncated: boolean }> {
@@ -121,24 +132,33 @@ async function readLimited(res: Response, maxBytes: number): Promise<{ text: str
     }
     chunks.push(value);
   }
-  const buf = Buffer.concat(chunks.map((c) => Buffer.from(c)));
-  return { text: new TextDecoder("utf-8", { fatal: false }).decode(buf), truncated };
+  return { text: new TextDecoder("utf-8", { fatal: false }).decode(Buffer.concat(chunks.map((c) => Buffer.from(c)))), truncated };
 }
 
-/**
- * Kullanıcı tarafından verilen adreslere güvenli istek: her yönlendirmede
- * hedefin herkese açık bir adres olduğu doğrulanır.
- */
+const NET_ERRORS: Record<string, string> = {
+  ENOTFOUND: "Host does not resolve.",
+  ECONNREFUSED: "Connection refused.",
+  ECONNRESET: "Connection reset by the server.",
+  ETIMEDOUT: "Connection timed out.",
+  EHOSTUNREACH: "Host unreachable.",
+  CERT_HAS_EXPIRED: "The server's TLS certificate has expired.",
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: "The server's TLS certificate could not be verified.",
+  DEPTH_ZERO_SELF_SIGNED_CERT: "The server uses a self-signed certificate.",
+  ERR_TLS_CERT_ALTNAME_INVALID: "The TLS certificate does not match this host name.",
+};
+
+/** Fetch for user-supplied targets: every hop is checked against private address ranges. */
 export async function safeFetch(
   url: string,
   opts: { timeoutMs?: number; maxBytes?: number; maxRedirects?: number; followRedirects?: boolean; method?: string; headers?: Record<string, string> } = {},
 ): Promise<SafeResponse> {
-  const { timeoutMs = 15000, maxBytes = 3_000_000, maxRedirects = 5, followRedirects = true, method = "GET" } = opts;
+  const { timeoutMs = 15000, maxBytes = 2_000_000, maxRedirects = 5, followRedirects = true, method = "GET" } = opts;
   const redirects: { url: string; status: number }[] = [];
+  const started = Date.now();
   let current = url;
   for (let i = 0; i <= maxRedirects; i++) {
     const u = new URL(current);
-    if (u.protocol !== "http:" && u.protocol !== "https:") throw new UserError("Desteklenmeyen protokol.");
+    if (u.protocol !== "http:" && u.protocol !== "https:") throw new UserError("Unsupported protocol.");
     await assertPublicHost(u.hostname);
     let res: Response;
     try {
@@ -150,7 +170,7 @@ export async function safeFetch(
           headers: {
             "user-agent": randomUA(),
             accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "accept-language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+            "accept-language": "en-US,en;q=0.9,tr;q=0.8",
             ...opts.headers,
           },
         },
@@ -158,17 +178,8 @@ export async function safeFetch(
       );
     } catch (e) {
       if (e instanceof UserError) throw e;
-      const cause = (e as { cause?: { code?: string } }).cause?.code;
-      const map: Record<string, string> = {
-        ENOTFOUND: "Alan adı çözümlenemedi.",
-        ECONNREFUSED: "Bağlantı reddedildi.",
-        ECONNRESET: "Bağlantı karşı taraf tarafından kapatıldı.",
-        CERT_HAS_EXPIRED: "Sunucunun SSL sertifikasının süresi dolmuş.",
-        UNABLE_TO_VERIFY_LEAF_SIGNATURE: "SSL sertifikası doğrulanamadı.",
-        DEPTH_ZERO_SELF_SIGNED_CERT: "Sunucu kendinden imzalı sertifika kullanıyor.",
-        ERR_TLS_CERT_ALTNAME_INVALID: "SSL sertifikası bu alan adıyla eşleşmiyor.",
-      };
-      throw new UserError(map[cause ?? ""] ?? `Siteye bağlanılamadı${cause ? ` (${cause})` : ""}.`);
+      const cause = (e as { cause?: { code?: string } }).cause?.code ?? "";
+      throw new UserError(NET_ERRORS[cause] ?? `Could not connect${cause ? ` (${cause})` : ""}.`, "connect_failed");
     }
     const loc = res.headers.get("location");
     if (followRedirects && res.status >= 300 && res.status < 400 && loc) {
@@ -178,16 +189,16 @@ export async function safeFetch(
       continue;
     }
     const { text, truncated } = method === "HEAD" ? { text: "", truncated: false } : await readLimited(res, maxBytes);
-    return { status: res.status, statusText: res.statusText, headers: res.headers, finalUrl: current, redirects, body: text, truncated };
+    return { status: res.status, statusText: res.statusText, headers: res.headers, finalUrl: current, redirects, body: text, truncated, timeMs: Date.now() - started };
   }
-  throw new UserError("Çok fazla yönlendirme.");
+  throw new UserError("Too many redirects.");
 }
 
-/** Sınırlı eşzamanlılıkla eşleme. */
+/** Maps with a concurrency limit. Order of results matches input. */
 export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length);
   let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
     while (next < items.length) {
       const i = next++;
       out[i] = await fn(items[i], i);
@@ -195,4 +206,20 @@ export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, i:
   });
   await Promise.all(workers);
   return out;
+}
+
+export function htmlTitle(html: string): string {
+  const m = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  return m ? decodeEntities(m[1]).replace(/\s+/g, " ").trim().slice(0, 160) : "";
+}
+
+export function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)));
 }

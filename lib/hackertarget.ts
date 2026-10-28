@@ -2,35 +2,28 @@ import { fetchWithTimeout, UserError } from "./net.ts";
 
 const BASE = "https://api.hackertarget.com";
 
-/**
- * HackerTarget API'sine sorgu yapar (orijinal ExPulSo.py ile aynı kaynak).
- * Boş string dönerse "kayıt bulunamadı" anlamına gelir.
- */
-export async function htQuery(endpoint: string, q: string, timeoutMs = 30000): Promise<string> {
-  const key = process.env.HACKERTARGET_API_KEY;
-  const url = `${BASE}/${endpoint}/?q=${encodeURIComponent(q)}${key ? `&apikey=${encodeURIComponent(key)}` : ""}`;
+/** Queries the free HackerTarget API. An empty string means "no records". */
+export async function htQuery(endpoint: string, q: string, timeoutMs = 25000): Promise<string> {
+  const url = `${BASE}/${endpoint}/?q=${encodeURIComponent(q)}`;
   let res: Response;
   try {
-    res = await fetchWithTimeout(url, { headers: { "user-agent": "Expulso-CTI/2.0" } }, timeoutMs);
+    res = await fetchWithTimeout(url, { headers: { "user-agent": "ReconPanel/1.0" } }, timeoutMs);
   } catch (e) {
-    if (e instanceof UserError) throw new UserError("HackerTarget servisi zamanında yanıt vermedi.");
-    throw new UserError("HackerTarget servisine bağlanılamadı.");
+    if (e instanceof UserError) throw new UserError("HackerTarget did not answer in time.", "timeout");
+    throw new UserError("Could not reach HackerTarget.", "upstream_error");
   }
-  const text = (await res.text()).trim();
-  return interpretHt(text, res.status);
+  return interpretHt((await res.text()).trim(), res.status);
 }
 
 export function interpretHt(text: string, status = 200): string {
   if (/API count exceeded/i.test(text) || status === 429) {
-    throw new UserError(
-      "HackerTarget ücretsiz günlük sorgu limiti doldu. Bir süre sonra tekrar deneyin veya Vercel ortam değişkenlerine HACKERTARGET_API_KEY ekleyin.",
-    );
+    throw new UserError("HackerTarget free daily quota reached (about 50 queries per day per server IP).", "rate_limited");
   }
-  if (/^error check your (search|api) (parameter|query)/i.test(text) || /^error input invalid/i.test(text)) {
-    throw new UserError("Geçersiz hedef: HackerTarget sorguyu kabul etmedi.");
+  if (/^error (check your search parameter|input invalid|check your api query)/i.test(text)) {
+    throw new UserError("HackerTarget rejected the query as invalid.", "upstream_error");
   }
-  if (/^error/i.test(text)) throw new UserError(`HackerTarget hatası: ${text.replace(/^error\s*/i, "")}`);
-  if (/^No (DNS )?(A )?records found|^No PTR records|^no records found/i.test(text)) return "";
-  if (status >= 500) throw new UserError(`HackerTarget servisi hata döndürdü (HTTP ${status}).`);
+  if (/^error/i.test(text)) throw new UserError(`HackerTarget: ${text.replace(/^error\s*/i, "")}`, "upstream_error");
+  if (/^no (dns )?(a )?records found|^no ptr records|^no records found/i.test(text)) return "";
+  if (status >= 500) throw new UserError(`HackerTarget returned HTTP ${status}.`, "upstream_error");
   return text;
 }

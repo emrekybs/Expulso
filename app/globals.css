@@ -1372,3 +1372,253 @@ tr:hover .row-actions,
   color: var(--muted);
   text-align: center;
 }
+
+/* ------------------------------ Login ------------------------------ */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 16px;
+}
+.login-box {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+.login-logo {
+  width: 220px;
+  max-width: 80%;
+  height: auto;
+}
+.login-box form {
+  width: 100%;
+}
+.field input {
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.field input:focus {
+  border-color: var(--brand-blue);
+  box-shadow: 0 0 0 3px rgba(29, 111, 242, 0.16);
+}
+
+/* ------------------------------ Tier badges ------------------------------ */
+.tier {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 99px;
+  white-space: nowrap;
+}
+.tier.passive {
+  border: 1px solid #1d4a2c;
+  color: var(--ok);
+}
+.tier.light {
+  border: 1px solid var(--border-strong);
+  color: var(--text-2);
+}
+.tier.active {
+  border: 1px solid #6b3a14;
+  color: var(--brand-orange-2);
+}
+
+/* ------------------------------ Bulk input ------------------------------ */
+textarea.bulk {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 120px;
+  padding: 12px 14px;
+  font: inherit;
+  font-size: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text);
+  outline: none;
+  resize: vertical;
+}
+textarea.bulk:focus {
+  border-color: var(--brand-blue);
+}
+.seg {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.seg button {
+  padding: 7px 14px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.seg button.on {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+.target-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 99px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.target-pill.active {
+  background: var(--brand-blue);
+  border-color: var(--brand-blue);
+  color: #fff;
+}
+.target-pill.done {
+  border-color: #1d4a2c;
+}
+.target-pill.failed {
+  border-color: #5a2320;
+  color: var(--bad);
+}
+.target-pill .st {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+/* ------------------------------ Logs ------------------------------ */
+.log-row {
+  display: grid;
+  grid-template-columns: 70px 90px minmax(0, 1fr) 70px 60px;
+  gap: 12px;
+  padding: 9px 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+  align-items: center;
+}
+.log-row:last-child {
+  border-bottom: none;
+}
+.log-row .lvl {
+  font-weight: 700;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  text-align: center;
+}
+.lvl.ok {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.lvl.error {
+  background: var(--bad-bg);
+  color: var(--bad);
+}
+.lvl.warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+.log-row .mono,
+.mono {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.log-row time {
+  color: var(--muted);
+}
+.log-detail {
+  padding: 2px 18px 12px 88px;
+  font-size: 12px;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ------------------------------ Grade ring ------------------------------ */
+.grade-badge {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  text-align: center;
+  line-height: 1.1;
+}
+
+/* ------------------------------ Accordion ------------------------------ */
+.acc-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 18px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.acc-head:hover {
+  background: var(--surface-2);
+}
+.acc-body {
+  padding: 4px 18px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ------------------------------ Mobile nav ------------------------------ */
+.mobile-only {
+  display: none;
+}
+@media (max-width: 960px) {
+  .mobile-only {
+    display: inline-grid;
+  }
+}
+
+/* ------------------------------ Misc ------------------------------ */
+.hl {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  word-break: break-all;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+.map-embed {
+  width: 100%;
+  height: 260px;
+  border: 0;
+  border-radius: 0 0 14px 14px;
+  display: block;
+}
+:root[data-theme="dark"] .map-embed,
+:root:not([data-theme]) .map-embed {
+  filter: invert(0.92) hue-rotate(180deg) saturate(0.7) brightness(0.9);
+}
+.wrap-anywhere {
+  overflow-wrap: anywhere;
+}

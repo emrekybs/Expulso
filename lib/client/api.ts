@@ -1,103 +1,120 @@
 "use client";
 import type { ModuleId } from "../modules-config.ts";
-
-export interface ScanMeta {
-  module: ModuleId;
-  target: string;
-  kind: string;
-  durationMs: number;
-  scannedAt: string;
-}
-
-export type ScanResponse<T> = { ok: true; data: T; meta: ScanMeta } | { ok: false; error: string };
+import type { ScanResponse } from "../types.ts";
+import { addLog } from "./logs.ts";
 
 const CACHE_TTL = 10 * 60 * 1000;
-const memory = new Map<string, { at: number; value: ScanResponse<unknown> }>();
+const memory = new Map<string, { at: number; value: ScanResponse }>();
 
-function cacheKey(module: string, target: string, options: unknown) {
-  return `expulso:${module}:${target.trim().toLowerCase()}:${JSON.stringify(options ?? {})}`;
+function key(module: string, target: string, options: unknown) {
+  return `recon:${module}:${target.trim().toLowerCase()}:${JSON.stringify(options ?? {})}`;
 }
 
-function readCache<T>(key: string): ScanResponse<T> | null {
-  const m = memory.get(key);
-  if (m && Date.now() - m.at < CACHE_TTL) return m.value as ScanResponse<T>;
+function readCache(k: string): ScanResponse | null {
+  const m = memory.get(k);
+  if (m && Date.now() - m.at < CACHE_TTL) return m.value;
   try {
-    const raw = sessionStorage.getItem(key);
+    const raw = sessionStorage.getItem(k);
     if (!raw) return null;
-    const v = JSON.parse(raw) as { at: number; value: ScanResponse<T> };
+    const v = JSON.parse(raw) as { at: number; value: ScanResponse };
     if (Date.now() - v.at < CACHE_TTL) return v.value;
   } catch {
-    /* depolama yok */
+    /* ignore */
   }
   return null;
 }
-
-function writeCache(key: string, value: ScanResponse<unknown>) {
-  const entry = { at: Date.now(), value };
-  memory.set(key, entry);
+function writeCache(k: string, value: ScanResponse) {
+  memory.set(k, { at: Date.now(), value });
   try {
-    sessionStorage.setItem(key, JSON.stringify(entry));
+    sessionStorage.setItem(k, JSON.stringify({ at: Date.now(), value }));
   } catch {
-    /* kota dolu veya depolama yok */
+    /* ignore */
   }
 }
 
-export async function runScan<T>(module: ModuleId, target: string, options?: unknown, force = false): Promise<ScanResponse<T>> {
-  const key = cacheKey(module, target, options);
+export async function runScan<T = unknown>(module: ModuleId, target: string, options?: unknown, force = false): Promise<ScanResponse<T>> {
+  const k = key(module, target, options);
   if (!force) {
-    const c = readCache<T>(key);
-    if (c) return c;
+    const c = readCache(k);
+    if (c) return c as ScanResponse<T>;
   }
+  const t0 = Date.now();
+  let json: ScanResponse<T>;
   try {
-    const res = await fetch(`/api/scan/${module}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ target, options }),
-    });
-    let json: ScanResponse<T>;
+    const res = await fetch(`/api/scan/${module}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, options }) });
     try {
-      json = await res.json();
+      json = (await res.json()) as ScanResponse<T>;
     } catch {
-      json = { ok: false, error: res.status === 504 ? "İşlem zaman aşımına uğradı. Daha küçük bir kapsamla tekrar deneyin." : `Sunucu hatası (HTTP ${res.status}).` };
+      json = { ok: false, error: res.status === 504 ? "The request timed out. Try a smaller scope." : `Server error (HTTP ${res.status}).`, code: "http_error", requestId: "-" };
     }
-    if (json.ok) writeCache(key, json);
+  } catch {
+    json = { ok: false, error: "Could not reach the server. Check your connection.", code: "network", requestId: "-" };
+  }
+  if (json.ok) {
+    writeCache(k, json);
+    addLog({ level: "ok", module, target, message: json.result.summary, requestId: json.meta.requestId, durationMs: json.meta.durationMs });
+    (json.result.warnings ?? []).forEach((w) => addLog({ level: "warn", module, target, message: w, requestId: json.ok ? json.meta.requestId : undefined }));
+  } else if (!json.skipped) {
+    addLog({ level: "error", module, target, message: json.error, detail: `code: ${json.code}`, requestId: json.requestId, durationMs: Date.now() - t0 });
+  }
+  return json;
+}
+
+export interface FullScanResponse {
+  ok: boolean;
+  error?: string;
+  meta?: { target: string; kind: string; mode: string; scannedAt: string; requestId: string; moduleCount: number };
+  findings?: (import("../types.ts").Finding & { module: string })[];
+  counts?: { high: number; medium: number; low: number; info: number };
+  modules?: FullScanModule[];
+}
+export type FullScanModule =
+  | { id: ModuleId; title: string; tier: string; ok: true; summary: string; findings: import("../types.ts").Finding[]; data: unknown; warnings: string[]; sources: import("../types.ts").SourceStatus[]; durationMs: number }
+  | { id: ModuleId; title: string; tier: string; ok: false; error?: string; code?: string; durationMs: number };
+
+export async function runFullScan(target: string, mode: string, options?: Record<string, Record<string, unknown>>): Promise<FullScanResponse> {
+  const t0 = Date.now();
+  try {
+    const res = await fetch("/api/full-scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, mode, options }) });
+    const json = (await res.json()) as FullScanResponse;
+    if (json.ok && json.modules) {
+      json.modules.forEach((m) =>
+        m.ok
+          ? addLog({ level: "ok", module: m.id, target, message: m.summary, requestId: json.meta?.requestId, durationMs: m.durationMs })
+          : addLog({ level: "error", module: m.id, target, message: m.error || "failed", detail: `code: ${m.code}`, requestId: json.meta?.requestId }),
+      );
+    } else if (!json.ok) {
+      addLog({ level: "error", module: "full-scan", target, message: json.error || "Full scan failed." });
+    }
     return json;
   } catch {
-    return { ok: false, error: "Sunucuya ulaşılamadı. İnternet bağlantınızı kontrol edin." };
+    addLog({ level: "error", module: "full-scan", target, message: "Could not reach the server.", durationMs: Date.now() - t0 });
+    return { ok: false, error: "Could not reach the server." };
   }
 }
 
-/* ------------------------------ Son aramalar ------------------------------ */
-
-const HISTORY_KEY = "expulso:history";
+/* ------------------------------ History ------------------------------ */
+const HKEY = "recon:history";
 export interface HistoryItem {
   target: string;
-  module: ModuleId | "overview";
+  module: string;
+  label: string;
   at: number;
+  summary?: string;
 }
-
 export function getHistory(): HistoryItem[] {
   try {
-    return JSON.parse(localStorage.getItem(HISTORY_KEY) ?? "[]") as HistoryItem[];
+    return JSON.parse(localStorage.getItem(HKEY) || "[]") as HistoryItem[];
   } catch {
     return [];
   }
 }
-
 export function pushHistory(item: Omit<HistoryItem, "at">) {
   try {
     const list = getHistory().filter((h) => !(h.target === item.target && h.module === item.module));
     list.unshift({ ...item, at: Date.now() });
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(list.slice(0, 30)));
+    localStorage.setItem(HKEY, JSON.stringify(list.slice(0, 40)));
   } catch {
-    /* depolama yok */
-  }
-}
-
-export function clearHistory() {
-  try {
-    localStorage.removeItem(HISTORY_KEY);
-  } catch {
-    /* depolama yok */
+    /* ignore */
   }
 }
