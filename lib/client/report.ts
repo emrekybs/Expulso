@@ -1,6 +1,7 @@
 "use client";
 import type { FullScanResponse } from "./api.ts";
 import type { Finding } from "../types.ts";
+import { computeAssessment } from "../assessment.ts";
 
 const SEV_COLOR: Record<string, string> = { high: "#d93a2f", medium: "#d9661a", low: "#b7790a", info: "#1d6ff2" };
 
@@ -30,12 +31,15 @@ export function buildHtmlReport(results: { target: string; res: FullScanResponse
       </div>`,
         )
         .join("");
+      const a = computeAssessment((r.res.modules ?? []) as Parameters<typeof computeAssessment>[0]);
+      const assess = `<div class="assess"><div class="grade">${esc(a.grade)} <small>${a.score}/100</small></div><div><div class="ft">${esc(a.headline)}</div><ul>${a.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul></div></div>`;
       const mods = (r.res.modules ?? [])
         .map((m) => (m.ok ? `<tr><td>${esc(m.title)}</td><td><span class="tag ${m.tier}">${esc(m.tier)}</span></td><td>${esc(m.summary)}</td><td>${Math.round(m.durationMs)}ms</td></tr>` : `<tr class="err"><td>${esc(m.title)}</td><td></td><td>${esc(m.error)}</td><td>${Math.round(m.durationMs)}ms</td></tr>`))
         .join("");
       return `
     <section class="target">
       <h2>${esc(r.target)}</h2>
+      ${assess}
       <div class="counts">
         <span style="color:${SEV_COLOR.high}">${c.high} High</span>
         <span style="color:${SEV_COLOR.medium}">${c.medium} Medium</span>
@@ -71,6 +75,7 @@ td{padding:8px;border-bottom:1px solid #eef1f6;vertical-align:top}
 tr.err td{color:#b23}
 .tag{font-size:11px;font-weight:700;padding:1px 7px;border-radius:99px;border:1px solid #cdd6e2}
 .tag.passive{color:#15a142}.tag.active{color:#d9661a}.tag.light{color:#5f6f84}
+.assess{display:flex;gap:18px;align-items:center;background:#f6f8fb;border:1px solid #e1e7ef;border-radius:10px;padding:14px;margin-bottom:14px}.grade{font-size:34px;font-weight:800;color:#1d6ff2;min-width:120px}.grade small{font-size:13px;color:#5f6f84;font-weight:600}.assess ul{margin:6px 0 0;padding-left:18px;color:#334155}
 footer{color:#8a97a8;font-size:12px;text-align:center;margin-top:24px}
 </style></head><body><div class="wrap">
 <header><h1>Passive Recon Report</h1><div class="muted">Mode: ${esc(mode)} · ${esc(results.length)} target(s) · generated ${esc(now)}</div></header>

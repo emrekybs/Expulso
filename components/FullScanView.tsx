@@ -7,6 +7,8 @@ import { runFullScan, pushHistory, type FullScanResponse, type FullScanModule } 
 import { buildHtmlReport } from "@/lib/client/report";
 import { download, stamp, slug } from "@/lib/client/export";
 import { renderModule } from "./renderers";
+import AssessmentCard from "./AssessmentCard";
+import { computeAssessment } from "@/lib/assessment";
 import { Card, Stat, Findings, Alert, Badge } from "./ui";
 import { Icon } from "./icons";
 
@@ -193,6 +195,8 @@ function TargetResult({ run, mode, expected, openMod, setOpenMod }: { run: Targe
 
   return (
     <div className="stack">
+      <AssessmentCard a={computeAssessment(res.modules ?? [])} />
+
       {/* progress grid */}
       <Card title={run.target} count={`${okMods.length}/${res.modules?.length ?? 0} ok`} pad={false}>
         <div className="card-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 8 }}>

@@ -21,6 +21,8 @@ import type { JsData } from "@/lib/modules/js";
 import type { DirData } from "@/lib/modules/dirs";
 import type { ExposureData } from "@/lib/modules/exposure";
 import type { OriginData } from "@/lib/modules/origin";
+import type { WebTechData } from "@/lib/modules/webtech";
+import type { PortsData } from "@/lib/modules/ports-passive";
 
 function statusBadge(status: number | null | undefined) {
   if (status == null) return <Badge>—</Badge>;
@@ -601,6 +603,88 @@ function Origin({ d }: { d: OriginData }) {
   );
 }
 
+/* ============================ Web Technologies ============================ */
+function WebTech({ d }: { d: WebTechData }) {
+  const cats = Object.entries(d.byCategory);
+  const cveByTech = new Map(d.cves.map((c) => [c.tech, c]));
+  return (
+    <div className="stack">
+      <div className="grid grid-3">
+        <Stat label="Technologies" value={d.technologies.length} accent="blue" />
+        <Stat label="Categories" value={cats.length} accent="silver" />
+        <Stat label="With known CVEs" value={d.cves.length} accent={d.cves.length ? "orange" : "green"} />
+      </div>
+      <Card title="Detected technologies" count={d.technologies.length} actions={<ExportBar baseName={`webtech_${d.target}`} rows={d.technologies.map((t) => ({ name: t.name, category: t.cat, version: t.version ?? "", confidence: t.confidence, evidence: t.evidence }))} json={d} />} pad={false}>
+        <DataTable
+          rows={d.technologies}
+          columns={[
+            { key: "name", header: "Technology", render: (r) => <span className="value">{r.name}{r.version && <span className="muted"> {r.version}</span>}</span>, value: (r) => r.name, sortable: true },
+            { key: "cat", header: "Category", render: (r) => <Badge>{r.cat}</Badge> },
+            { key: "confidence", header: "Confidence", render: (r) => <Badge kind={r.confidence === "high" ? "ok" : undefined}>{r.confidence}</Badge> },
+            { key: "cve", header: "Known CVEs", render: (r) => { const c = cveByTech.get(r.name); return c ? <Badge kind="orange">{c.ids.length}</Badge> : <span className="muted">—</span>; } },
+            { key: "evidence", header: "Evidence", render: (r) => <span className="muted small wrap-anywhere">{r.implied ? `implied: ${r.evidence}` : r.evidence}</span> },
+          ]}
+          filterKeys={(r) => `${r.name} ${r.cat} ${r.version ?? ""}`}
+          empty="No known technologies matched. The site may hide its stack or serve a bot-challenge page."
+        />
+      </Card>
+      {cats.length > 0 && (
+        <Card title="By category" pad={false}>
+          {cats.map(([cat, items]) => (
+            <div key={cat} className="list-item">
+              <b style={{ width: 200, flexShrink: 0 }}>{cat}</b>
+              <span className="muted wrap-anywhere">{items.join(", ")}</span>
+            </div>
+          ))}
+        </Card>
+      )}
+      {d.cves.length > 0 && (
+        <Card title="Known vulnerabilities (OSV.dev)" count={d.cves.reduce((s, c) => s + c.ids.length, 0)} pad={false}>
+          {d.cves.map((c) => (
+            <div key={c.tech} className="check-row" style={{ gridTemplateColumns: "1fr" }}>
+              <div className="cr-title">{c.tech} {c.version}</div>
+              {c.ids.map((i) => (
+                <div key={i.id} className="cr-detail"><span className="mono">{i.id}</span> {i.summary}</div>
+              ))}
+            </div>
+          ))}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/* ============================ Exposed services (passive) ============================ */
+function Ports({ d }: { d: PortsData }) {
+  const riskKind = (r: string | null) => (r === "high" ? "bad" : r === "medium" ? "orange" : r === "low" ? "info" : undefined) as "bad" | "orange" | "info" | undefined;
+  return (
+    <div className="stack">
+      <div className="grid grid-3">
+        <Stat label="IP addresses" value={d.hosts.length} sub={`${d.hosts.filter((h) => h.found).length} with passive data`} accent="silver" />
+        <Stat label="Open ports" value={d.totalPorts} accent="blue" />
+        <Stat label="Known CVEs" value={d.totalCves} accent={d.totalCves ? "orange" : "green"} />
+      </div>
+      {d.hosts.map((h) => (
+        <Card key={h.ip} title={h.ip} count={h.found ? `${h.ports.length} port(s)` : "no data"} actions={h.hostnames.length ? <CopyBtn text={h.hostnames.join("\n")} label="Copy hostnames" /> : undefined} pad={false}>
+          {!h.found ? (
+            <div className="card-body muted">InternetDB has no record for this IP. That usually means it was not in its scan index, not that the host is closed.</div>
+          ) : (
+            <div className="card-body" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {h.ports.map((p) => <Badge key={p.port} kind={riskKind(p.risk)}>{p.port} {p.label}</Badge>)}
+              </div>
+              {h.hostnames.length > 0 && <KeyValue rows={[["Hostnames", h.hostnames.join(", ")]]} />}
+              {h.cpes.length > 0 && <KeyValue rows={[["Software (CPE)", h.cpes.join(", ")]]} />}
+              {h.tags.length > 0 && <KeyValue rows={[["Tags", h.tags.join(", ")]]} />}
+              {h.cves.length > 0 && <div className="cr-value wrap-anywhere">{h.cves.join(", ")}</div>}
+            </div>
+          )}
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 /* ============================ Dispatch ============================ */
 export function renderModule(id: ModuleId, output: ModuleOutput): React.ReactNode {
   const data = output.data as never;
@@ -624,6 +708,8 @@ export function renderModule(id: ModuleId, output: ModuleOutput): React.ReactNod
     case "dirs": return <Dirs d={data} />;
     case "exposure": return <Exposure d={data} />;
     case "origin": return <Origin d={data} />;
+    case "webtech": return <WebTech d={data} />;
+    case "ports-passive": return <Ports d={data} />;
     default: return <pre className="hl">{JSON.stringify(output.data, null, 2)}</pre>;
   }
 }

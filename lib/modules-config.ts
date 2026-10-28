@@ -20,7 +20,9 @@ export type ModuleId =
   | "js"
   | "dirs"
   | "exposure"
-  | "origin";
+  | "origin"
+  | "webtech"
+  | "ports-passive";
 
 /** passive: nothing is sent to the target. light: a few normal page loads. active: many requests to the target. */
 export type Tier = "passive" | "light" | "active";
@@ -133,6 +135,16 @@ export const MODULES: ModuleDef[] = [
     bulkLimit: 50,
   },
   {
+    id: "ports-passive",
+    title: "Exposed Services (passive)",
+    group: "Recon",
+    tier: "passive",
+    description: "Open ports, service banners, hostnames and known CVEs for the target's IPs from Shodan InternetDB's cached index. Nothing is sent to the target.",
+    accepts: HOSTS,
+    sources: ["Shodan InternetDB (keyless, cached)", "DNS"],
+    bulkLimit: 20,
+  },
+  {
     id: "cloud",
     title: "Cloud & CDN Mapping",
     group: "Recon",
@@ -205,6 +217,16 @@ export const MODULES: ModuleDef[] = [
     description: "Status, title, server, technologies, redirect chain, TLS certificate and security headers for http and https (httpx-style).",
     accepts: HOSTS,
     sources: ["Target website"],
+    bulkLimit: 30,
+  },
+  {
+    id: "webtech",
+    title: "Web Technologies",
+    group: "Active",
+    tier: "light",
+    description: "Detects CMS, frameworks, web servers, CDNs, analytics, chat and JavaScript libraries (about 130 signatures) with versions where visible. Flags outdated versions and checks npm libraries against OSV.dev for known CVEs.",
+    accepts: NAMES,
+    sources: ["Target homepage (one request)", "OSV.dev (keyless) for library CVEs"],
     bulkLimit: 30,
   },
   {

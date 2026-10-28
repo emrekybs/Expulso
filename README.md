@@ -1,75 +1,68 @@
 # Recon Panel
 
-A domain-focused **passive recon & OSINT** web panel. Analysts enter a domain (or IP,
-range or URL) and run a full scan or any single module from one dashboard — no separate
-tools to install. Built with Next.js, deploys to Vercel, and uses only **keyless public
-sources** (no third-party API keys required).
+A local, domain-focused **passive recon & OSINT** workbench. Enter a domain (or IP, range or URL)
+and run a full scan or single modules from one dashboard. It runs on your own machine and
+installs as a desktop/phone app. No API keys are needed.
 
-> For authorized security research and threat intelligence only. The modules marked
-> **Active** send requests to the target; use them only on systems you are allowed to test.
+> For authorized security research and threat intelligence only. Modules marked **Active**
+> send requests to the target. Use them only on systems you are allowed to test.
 
-## Modules
+## Run it locally
 
-**Recon (passive — nothing is sent to the target)**
-Subdomain Enumeration · DNS Records (SPF/DMARC/DKIM/MTA-STS/DNSSEC) · WHOIS / RDAP ·
-Certificate Transparency · Reverse DNS · Reverse IP · GeoIP & ASN · Cloud & CDN Mapping ·
-Related Domains · Typosquatting
-
-**OSINT**
-Google Dorks (link generator) · OSINT Harvester (emails, socials, phones) · Email Harvester
-
-**Active (sends requests to the target)**
-HTTP Fingerprint · WAF / CDN Detection · Origin IP Finder (real IP behind a CDN) ·
-JS Crawler (endpoints & secrets) · Directory & Admin Finder · Exposure & Misconfig
-
-**Full Scan** runs many modules at once in **Passive only**, **Active only** or **Full**
-mode, for a single target or a bulk list, and produces an HTML / JSON / CSV report.
-**Logs** records every module call (status, duration, request id, errors) for the session.
-
-## Local development
+Requirements: Node.js 20 or newer.
 
 ```bash
 npm install
-cp .env.example .env.local   # then edit the values
-npm run dev                  # http://localhost:3000
+npm run build
+npm start            # open http://localhost:3000
 ```
 
-```bash
-npm run build && npm start   # production build
-npm test                     # unit tests
-```
+For development with hot reload: `npm run dev`.
 
-## Configuration (environment variables)
+## Install as an app (icon on your desktop / start menu / home screen)
 
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `AUTH_USERNAME` | recommended | Login username (default `b24`). The same credentials can be shared by several people. |
-| `AUTH_PASSWORD` | **yes in production** | Login password. **If unset, the panel is open without a login** — always set it on Vercel. |
-| `AUTH_SECRET` | recommended | Secret used to sign the session cookie. Set a long random value; otherwise `AUTH_PASSWORD` is used. |
+The panel is a Progressive Web App. Open it once in Chrome or Edge at `http://localhost:3000`:
 
-Sessions are a stateless, HMAC-signed cookie valid for 12 hours, so multiple users can
-sign in with the same credentials on different devices.
+- **Desktop (Chrome / Edge):** click the install icon in the address bar (or menu → *Install Recon Panel*).
+  It gets its own window and an icon in the start menu / dock. Launching the icon opens the app directly.
+- **Android (Chrome):** menu → *Add to Home screen*.
+- **iPhone / iPad (Safari):** Share → *Add to Home Screen*.
 
-## Deploy to Vercel
+Installation needs a secure context, and `localhost` counts as one. The app is served by your
+local `npm start`, so keep that process running while you use the icon.
 
-1. Push this repo to GitHub and import it in Vercel (framework: Next.js — auto-detected).
-2. In **Settings → Environment Variables**, add `AUTH_USERNAME`, `AUTH_PASSWORD` and
-   `AUTH_SECRET`.
-3. Deploy. Each scan runs server-side within Vercel's function time limit; bulk scans are
-   driven one target at a time from the browser so they never exceed it.
+## Modules
 
-## Notes & limits
+**Recon (passive: nothing is sent to the target)**
+Subdomain Enumeration (passive sources, DNS resolution, HTTP status) · DNS Records (SPF, DMARC,
+DKIM, MTA-STS, DNSSEC) · WHOIS / RDAP · Certificate Transparency · Reverse DNS · Reverse IP ·
+GeoIP & ASN · Cloud & CDN Mapping · Related Domains · Typosquatting · Exposed Services
+(Shodan InternetDB cached index)
 
-- All data comes from keyless public sources (crt.sh, RDAP, DNS-over-HTTPS, AlienVault OTX,
-  HackerTarget, RapidDNS, RIPEstat, ipwho.is, provider IP-range lists, …). Some have free
-  rate limits, so occasional "source unavailable" results are expected; each source's status
-  is shown per scan and in the Logs page.
-- There is no port scanner and no exploit/vulnerability-exploitation engine. Active modules
-  perform content discovery and detection with benign requests only.
-- Requests to private, loopback and link-local addresses are blocked (SSRF protection).
+**OSINT:** Google Dorks (links only) · OSINT Harvester (emails, social links, phones, authors) ·
+Email Harvester (corporate and staff addresses, pattern detection)
+
+**Active (sends requests to the target):** HTTP Fingerprint · Web Technologies (CMS, frameworks,
+servers, CDNs, analytics, libraries with versions, outdated-version and CVE checks) ·
+WAF / CDN Detection · Origin IP Finder · JS Crawler · Directory & Admin Finder · Exposure & Misconfig
+
+**Full Scan:** passive only, active only or both, for one target or a bulk list. It produces an
+assessment (risk score, top priorities, attack-surface numbers, coverage) and an HTML / JSON / CSV
+report. **Logs** records every module call with its status, duration and request id.
+
+## Notes and limits
+
+- Data comes from public, keyless sources (crt.sh, Wayback CDX, RDAP, DNS-over-HTTPS, AlienVault OTX,
+  HackerTarget, RapidDNS, RIPEstat, Shodan InternetDB, OSV.dev, provider IP-range lists). Free sources
+  rate-limit, so a source can show an error; each source's status is shown in the scan and in Logs.
+- Some sites block automated access (for example with a Cloudflare challenge page). The panel reports
+  that instead of showing an empty result.
+- There is no port scanner and no vulnerability-exploitation engine. Active modules use benign requests
+  for discovery and detection only.
+- Requests to private, loopback and link-local addresses are blocked.
+- Scan results are kept in the browser for the session (Logs) and are not stored on a server.
 
 ## Credits
 
-OSINT Harvester reuses the extraction logic of
-[z0m31en7/Uscrapper](https://github.com/z0m31en7/Uscrapper) (MIT), re-implemented in
-TypeScript. Original HackerTarget-based tool by emrekybs.
+The OSINT Harvester reuses the extraction logic of
+[z0m31en7/Uscrapper](https://github.com/z0m31en7/Uscrapper) (MIT), re-implemented in TypeScript.

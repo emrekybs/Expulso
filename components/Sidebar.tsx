@@ -1,13 +1,12 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { MODULES, GROUPS, type Group } from "@/lib/modules-config";
 import { Icon, moduleIcon } from "./icons";
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
@@ -31,12 +30,6 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
 
   const active = (href: string) => pathname === href;
   const show = !collapsed;
-
-  async function logout() {
-    await fetch("/api/logout", { method: "POST" });
-    router.replace("/login");
-    router.refresh();
-  }
 
   const Item = ({ href, icon, label, tier }: { href: string; icon: React.ReactNode; label: string; tier?: string }) => (
     <Link href={href} className={`nav-link${active(href) ? " active" : ""}`} title={label} onClick={onClose} style={collapsed ? { justifyContent: "center", padding: 0, width: 44, minHeight: 44, margin: "0 auto" } : undefined}>
@@ -92,12 +85,9 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           {show && (
             <>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>Signed in</div>
-                <div style={{ fontSize: 11, color: "var(--muted)" }}>Keyless sources</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text)" }}>Local workspace</div>
+                <div style={{ fontSize: 11, color: "var(--muted)" }}>No API keys needed</div>
               </div>
-              <button type="button" className="icon-btn" style={{ width: 34, height: 34 }} onClick={logout} title="Sign out" aria-label="Sign out">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></svg>
-              </button>
             </>
           )}
         </div>

@@ -21,6 +21,8 @@ import { runJs } from "./modules/js.ts";
 import { runDirs } from "./modules/dirs.ts";
 import { runExposure } from "./modules/exposure.ts";
 import { runOrigin } from "./modules/origin.ts";
+import { runWebTech } from "./modules/webtech.ts";
+import { runPortsPassive } from "./modules/ports-passive.ts";
 
 type Opts = Record<string, unknown>;
 
@@ -56,6 +58,8 @@ const RUNNERS: Record<ModuleId, (t: ParsedTarget, o: Opts) => Promise<ModuleOutp
   dirs: (t, o) => runDirs(t, { wordlist: (o.wordlist as "admin" | "common" | "all") || "common", extensions: String(o.extensions ?? ""), recursion: Number(o.recursion) || 0 }),
   exposure: (t) => runExposure(t),
   origin: (t) => runOrigin(t),
+  webtech: (t) => runWebTech(t),
+  "ports-passive": (t) => runPortsPassive(t),
 };
 
 export interface RunResult {

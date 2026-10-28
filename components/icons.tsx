@@ -67,6 +67,12 @@ export const Icon: Record<string, (p: P) => React.ReactElement> = {
   exposure: (p) => (
     <svg {...base(p.size)} className={p.className}><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" /></svg>
   ),
+  webtech: (p) => (
+    <svg {...base(p.size)} className={p.className}><rect width="7" height="7" x="3" y="3" rx="1" /><rect width="7" height="7" x="14" y="3" rx="1" /><rect width="7" height="7" x="14" y="14" rx="1" /><rect width="7" height="7" x="3" y="14" rx="1" /></svg>
+  ),
+  "ports-passive": (p) => (
+    <svg {...base(p.size)} className={p.className}><rect width="20" height="8" x="2" y="2" rx="2" /><rect width="20" height="8" x="2" y="14" rx="2" /><path d="M6 6h.01" /><path d="M6 18h.01" /><path d="M14 6h4" /></svg>
+  ),
   origin: (p) => (
     <svg {...base(p.size)} className={p.className}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 0 1 2.5 8.24" /><path d="m12 13 2 2 4-4" /></svg>
   ),

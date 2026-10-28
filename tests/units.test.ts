@@ -7,7 +7,6 @@ import { detectWaf, detectTech } from "../lib/modules/fingerprint-core.ts";
 import { analyzeMail } from "../lib/modules/dns.ts";
 import { matchTakeover } from "../lib/modules/takeover-core.ts";
 import { buildWordlist, looksLikeAdmin } from "../lib/modules/wordlists.ts";
-import { issueToken, verifyToken } from "../lib/auth.ts";
 
 test("parseTarget classifies kinds", () => {
   assert.equal((parseTarget("example.com") as { kind: string }).kind, "domain");
@@ -85,13 +84,6 @@ test("buildWordlist + looksLikeAdmin", () => {
   assert.ok(!looksLikeAdmin("/about", "About us", "<p>hi</p>"));
 });
 
-test("auth token round-trip", () => {
-  process.env.AUTH_SECRET = "test-secret";
-  const { token } = issueToken("b24");
-  assert.equal(verifyToken(token)?.username, "b24");
-  assert.equal(verifyToken(token + "x"), null);
-  assert.equal(verifyToken("a.b.c"), null);
-});
 
 // ---------------- Uscrapper extraction (regression for "no emails found") ----------------
 import { extractFromHtml, decodeCfEmail, deobfuscate, challengeOf } from "../lib/modules/uscrapper-core.ts";
@@ -133,4 +125,78 @@ test("flags bot-challenge pages so empty results are explained, not silent", () 
   assert.equal(challengeOf("<html><body>hello</body></html>"), null);
   const ex = extractFromHtml("<title>Just a moment...</title><div id='challenge-platform'></div>", "https://x.com/", false);
   assert.ok(ex.challenge);
+});
+
+// ---------------- Web technologies, passive ports, assessment ----------------
+import { detectWebTech, outdatedFindings, versionLt } from "../lib/modules/webtech.ts";
+import { analyzeInternetDb } from "../lib/modules/ports-passive.ts";
+import { computeAssessment } from "../lib/assessment.ts";
+
+test("detects WordPress + jQuery + nginx/Cloudflare with versions", () => {
+  const headers = new Headers({ server: "cloudflare", "cf-ray": "abc-IST", "x-powered-by": "PHP/7.4.3" });
+  const html = `<html><head>
+    <meta name="generator" content="WordPress 5.8.1">
+    <link rel="stylesheet" href="/wp-content/themes/x/style.css">
+    <script src="https://cdn.example.com/jquery-3.4.1.min.js"></script>
+    <script>gtag('config','G-ABCD1234XY')</script>
+    <script src="https://www.googletagmanager.com/gtag/js?id=G-ABCD1234XY"></script>
+  </head><body></body></html>`;
+  const techs = detectWebTech({ headers, html });
+  const names = techs.map((t) => t.name);
+  assert.ok(names.includes("WordPress"));
+  assert.ok(names.includes("Cloudflare"));
+  assert.ok(names.includes("PHP"));
+  const wp = techs.find((t) => t.name === "WordPress")!;
+  assert.equal(wp.version, "5.8.1");
+  const jq = techs.find((t) => t.name === "jQuery")!;
+  assert.equal(jq.version, "3.4.1");
+  assert.equal(techs.find((t) => t.name === "PHP")!.version, "7.4.3");
+  assert.ok(names.includes("Google Analytics"));
+});
+
+test("WooCommerce implies WordPress", () => {
+  const techs = detectWebTech({ headers: new Headers(), html: `<div class="woocommerce-page"></div>` });
+  const wc = techs.find((t) => t.name === "WooCommerce");
+  assert.ok(wc);
+  assert.ok(techs.some((t) => t.name === "WordPress" && t.implied));
+});
+
+test("version comparison and outdated rules", () => {
+  assert.ok(versionLt("3.4.1", "3.5.0"));
+  assert.ok(!versionLt("3.5.0", "3.5.0"));
+  assert.ok(versionLt("8.0", "8.2") && !versionLt("8.10", "8.2"));
+  const f = outdatedFindings([
+    { name: "jQuery", cat: "JavaScript library", version: "3.4.1", confidence: "high", evidence: "" },
+    { name: "PHP", cat: "Language", version: "7.4.3", confidence: "high", evidence: "" },
+    { name: "WordPress", cat: "CMS", version: "6.4", confidence: "high", evidence: "" },
+  ]);
+  const titles = f.map((x) => x.title).join(" | ");
+  assert.match(titles, /jQuery 3\.4\.1/);
+  assert.match(titles, /PHP 7\.4\.3 is end of life/);
+  assert.ok(!titles.includes("WordPress 6.4"), "6.4 is current, must not be flagged");
+});
+
+test("InternetDB parser flags risky ports and CVEs without touching the target", () => {
+  const h = analyzeInternetDb({ ip: "1.2.3.4", ports: [22, 443, 3389, 3389], hostnames: ["x.example.com"], cpes: ["cpe:/a:nginx:1.18"], tags: [], vulns: ["CVE-2021-23017"] }, "1.2.3.4");
+  assert.equal(h.found, true);
+  assert.deepEqual(h.ports.map((p) => p.port), [22, 443, 3389]);
+  assert.equal(h.ports.find((p) => p.port === 3389)!.risk, "high");
+  assert.deepEqual(h.cves, ["CVE-2021-23017"]);
+  const none = analyzeInternetDb(null, "5.6.7.8");
+  assert.equal(none.found, false);
+});
+
+test("assessment: score drops with severity, grade and priorities are ordered", () => {
+  const clean = computeAssessment([{ id: "dns", ok: true, findings: [] }]);
+  assert.equal(clean.score, 100);
+  assert.equal(clean.grade, "A+");
+  const bad = computeAssessment([
+    { id: "dns", title: "DNS", ok: true, findings: [{ severity: "low", title: "weak spf", detail: "" }] },
+    { id: "ports-passive", title: "Ports", ok: true, findings: [{ severity: "high", title: "RDP exposed", detail: "" }, { severity: "medium", title: "CVE list", detail: "" }] },
+    { id: "exposure", title: "Exposure", ok: false, code: "timeout" },
+  ]);
+  assert.ok(bad.score < clean.score);
+  assert.equal(bad.priorities[0].title, "RDP exposed");
+  assert.equal(bad.coverage.failed, 1);
+  assert.equal(bad.counts.high, 1);
 });
