@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { ModuleDef } from "@/lib/modules-config";
 import { parseTarget, splitTargets, KIND_LABEL } from "@/lib/target";
 import type { ScanResponse } from "@/lib/types";
-import { runScan, pushHistory } from "@/lib/client/api";
+import { runScan } from "@/lib/client/api";
 import { renderModule } from "./renderers";
 import { Card, Findings, Alert, Badge } from "./ui";
 import { Icon } from "./icons";
@@ -46,7 +46,6 @@ export default function ModuleRunner({ def }: { def: ModuleDef }) {
     const res = await runScan(def.id, targetRaw, options, true);
     setResult(res);
     setBusy(false);
-    if (res.ok) pushHistory({ target: parsed.host, module: def.id, label: def.title, summary: res.result.summary });
   }
 
   async function runBulk() {

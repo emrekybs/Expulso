@@ -1,59 +1,45 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { MODE_LABEL, modulesForMode, type ScanMode } from "@/lib/modules-config";
 import { parseTarget, splitTargets } from "@/lib/target";
-import { runFullScan, pushHistory, type FullScanResponse, type FullScanModule } from "@/lib/client/api";
-import { buildHtmlReport } from "@/lib/client/report";
-import { download, stamp, slug } from "@/lib/client/export";
-import { renderModule } from "./renderers";
-import AssessmentCard from "./AssessmentCard";
-import InventoryCard from "./InventoryCard";
-import { buildInventory } from "@/lib/inventory";
-import { computeAssessment } from "@/lib/assessment";
-import { Card, Stat, Findings, Alert, Badge } from "./ui";
+import { listScans, startScan } from "@/lib/client/api";
+import type { ScanSummary } from "@/lib/scan-types";
+import { Alert, Badge } from "./ui";
 import { Icon } from "./icons";
 
-interface TargetRun {
+interface Started {
   target: string;
-  state: "queued" | "running" | "done" | "failed";
-  res?: FullScanResponse;
+  id?: string;
+  error?: string;
 }
+
+const STATUS: Record<ScanSummary["status"], { label: string; kind?: "ok" | "warn" | "bad" | "info" }> = {
+  running: { label: "running", kind: "warn" },
+  done: { label: "done", kind: "ok" },
+  failed: { label: "failed", kind: "bad" },
+};
 
 export default function FullScanView() {
   const params = useSearchParams();
+  const router = useRouter();
   const [mode, setMode] = useState<ScanMode>("passive");
   const [input, setInput] = useState("");
   const [bulk, setBulk] = useState(false);
-  const [runs, setRuns] = useState<TargetRun[]>([]);
-  const [active, setActive] = useState(0);
+  const [scopeText, setScopeText] = useState("");
+  const [chainLimit, setChainLimit] = useState(15);
   const [busy, setBusy] = useState(false);
-  const [openMod, setOpenMod] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const started = useRef(false);
-  const [pendingRun, setPendingRun] = useState(false);
-
-  useEffect(() => {
-    const t = params.get("target");
-    if (t && !started.current) {
-      started.current = true;
-      setInput(t);
-      setPendingRun(true);
-    }
-  }, [params]);
-
-  useEffect(() => {
-    if (pendingRun && input) {
-      setPendingRun(false);
-      void run();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendingRun, input]);
+  const [batch, setBatch] = useState<Started[]>([]);
+  const [summaries, setSummaries] = useState<Record<string, ScanSummary>>({});
+  const auto = useRef(false);
 
   const expectedModules = modulesForMode(mode);
 
-  async function run() {
-    const targets = (bulk ? splitTargets(input) : [input.trim()]).filter(Boolean).slice(0, 20);
+  async function run(override?: string) {
+    const raw = override ?? input;
+    const targets = (bulk ? splitTargets(raw) : [raw.trim()]).filter(Boolean).slice(0, 20);
     if (!targets.length) {
       setError("Enter at least one target.");
       return;
@@ -67,35 +53,50 @@ export default function FullScanView() {
     }
     setError("");
     setBusy(true);
-    setOpenMod(null);
-    const list: TargetRun[] = targets.map((t) => ({ target: t, state: "queued" }));
-    setRuns([...list]);
-    setActive(0);
-    for (let i = 0; i < list.length; i++) {
-      list[i].state = "running";
-      setRuns([...list]);
-      setActive(i);
-      list[i].res = await runFullScan(list[i].target, mode);
-      list[i].state = list[i].res?.ok ? "done" : "failed";
-      setRuns([...list]);
-      if (list[i].res?.ok) pushHistory({ target: parseTarget(list[i].target) && "host" in (parseTarget(list[i].target) as object) ? (parseTarget(list[i].target) as { host: string }).host : list[i].target, module: "overview", label: `Full Scan (${mode})`, summary: `${list[i].res!.counts?.high ?? 0} high · ${list[i].res!.counts?.medium ?? 0} medium` });
+    const scope = scopeText.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    const started: Started[] = [];
+    for (const t of targets) {
+      const r = await startScan({ target: t, mode, scope, chainLimit });
+      started.push(r.ok ? { target: t, id: r.id } : { target: t, error: r.error });
     }
     setBusy(false);
-  }
-
-  const cur = runs[active];
-
-  function exportAll(kind: "html" | "json" | "csv") {
-    const done = runs.filter((r) => r.res?.ok).map((r) => ({ target: r.target, res: r.res! }));
-    if (!done.length) return;
-    const base = `full_scan_${slug(runs[0]?.target ?? "report")}_${stamp()}`;
-    if (kind === "html") download(`${base}.html`, buildHtmlReport(done, mode), "text/html");
-    else if (kind === "json") download(`${base}.json`, JSON.stringify(done, null, 2), "application/json");
-    else {
-      const rows = done.flatMap((d) => (d.res.findings ?? []).map((f) => ({ target: d.target, severity: f.severity, module: f.module, title: f.title, detail: f.detail, recommendation: f.recommendation ?? "" })));
-      download(`${base}_findings.csv`, toCsvLocal(rows), "text/csv");
+    if (!bulk && started[0]?.id) {
+      router.push(`/scans/${started[0].id}`);
+      return;
     }
+    setBatch(started);
   }
+
+  useEffect(() => {
+    const t = params.get("target");
+    if (t && !auto.current) {
+      auto.current = true;
+      setInput(t);
+      void run(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
+
+  // Follows the batch until every scan has finished.
+  useEffect(() => {
+    if (!batch.length) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      const list = await listScans();
+      if (stopped) return;
+      const map: Record<string, ScanSummary> = {};
+      list.forEach((s) => (map[s.id] = s));
+      setSummaries(map);
+      const pending = batch.some((b) => b.id && (!map[b.id] || map[b.id].status === "running"));
+      if (pending) timer = setTimeout(tick, 2000);
+    };
+    void tick();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [batch]);
 
   return (
     <div className="stack">
@@ -103,7 +104,10 @@ export default function FullScanView() {
         <div className="page-icon">{Icon.fullscan({ size: 22 })}</div>
         <div>
           <h1>Full Scan</h1>
-          <p>Runs many modules against each target and merges the results into one report. Choose passive only, active only, or both. In bulk mode, enter several targets — domains, IPs, ranges or URLs.</p>
+          <p>
+            Runs the target modules, then scans every live subdomain it finds (the chain), and port-scans each address once. The scan runs on the server: you can open other pages, and it stays in{" "}
+            <Link className="value-link" href="/history">History</Link>.
+          </p>
         </div>
       </div>
 
@@ -132,140 +136,73 @@ export default function FullScanView() {
               <input value={input} onChange={(e) => setInput(e.target.value)} placeholder="example.com" aria-label="Target" />
             </div>
             <button type="submit" className="btn-primary" disabled={busy}>
-              {busy ? "Scanning…" : "Run Full Scan"}
+              {busy ? "Starting…" : "Run Full Scan"}
             </button>
           </form>
         )}
         {bulk && (
           <div style={{ marginTop: 10 }}>
-            <button type="button" className="btn-primary" disabled={busy} onClick={run}>
-              {busy ? "Scanning…" : `Scan ${splitTargets(input).length || ""} targets`}
+            <button type="button" className="btn-primary" disabled={busy} onClick={() => run()}>
+              {busy ? "Starting…" : `Scan ${splitTargets(input).length || ""} targets`}
             </button>
           </div>
         )}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12, marginTop: 14 }}>
+          <label className="stack" style={{ gap: 6 }}>
+            <span className="muted small">Scope (optional): only these domains and their subdomains are scanned</span>
+            <input value={scopeText} onChange={(e) => setScopeText(e.target.value)} placeholder="example.com, example.org" aria-label="Scope" />
+          </label>
+          <label className="stack" style={{ gap: 6 }}>
+            <span className="muted small">Live subdomains to chain (0 turns the chain off)</span>
+            <input type="number" min={0} max={50} value={chainLimit} onChange={(e) => setChainLimit(Math.max(0, Math.min(50, Number(e.target.value) || 0)))} aria-label="Chain limit" />
+          </label>
+        </div>
+
         <div className="recent" style={{ marginTop: 10 }}>
-          {mode === "full" ? "Active modules send requests to the target. Use only on systems you are authorized to test." : mode === "active" ? "Active modules send requests to the target. Use only on systems you are authorized to test." : "Passive mode sends nothing to the target."} Modules this mode runs: {expectedModules.length}.
+          {mode === "passive" ? "Passive mode sends nothing to the target." : "Active modules send requests to the target. Use only on systems you are authorized to test."} Modules this mode runs on the target: {expectedModules.length}.
         </div>
       </section>
 
       {error && <Alert kind="bad">{error}</Alert>}
-      {(mode === "active" || mode === "full") && <Alert kind="warn" title="Active scan">This includes modules that send requests to the target (HTTP fingerprint, JS crawler, directory finder, exposure checks). Only run against systems you are authorized to test.</Alert>}
+      {(mode === "active" || mode === "full") && <Alert kind="warn" title="Active scan">This includes modules that send requests to the target (port scan, HTTP fingerprint, directory finder, admin panels, exposure checks). Only run against systems you are authorized to test.</Alert>}
 
-      {runs.length > 0 && (
-        <>
-          <div className="result-bar">
-            <span className="muted small">Targets:</span>
-            {runs.map((r, i) => (
-              <button key={r.target} type="button" className={`target-pill ${r.state === "done" ? "done" : r.state === "failed" ? "failed" : ""} ${i === active ? "active" : ""}`} onClick={() => setActive(i)}>
-                <span className="st" style={{ background: r.state === "done" ? "var(--ok)" : r.state === "failed" ? "var(--bad)" : r.state === "running" ? "var(--warn)" : "var(--muted)" }} />
-                {r.target}
-                {r.state === "running" && " …"}
-              </button>
-            ))}
-            <div className="rb-actions">
-              <button type="button" className="btn btn-sm" disabled={!runs.some((r) => r.res?.ok)} onClick={() => exportAll("html")}>HTML report</button>
-              <button type="button" className="btn btn-sm" disabled={!runs.some((r) => r.res?.ok)} onClick={() => exportAll("json")}>JSON</button>
-              <button type="button" className="btn btn-sm" disabled={!runs.some((r) => r.res?.ok)} onClick={() => exportAll("csv")}>CSV</button>
-            </div>
+      {batch.length > 0 && (
+        <section className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <div className="card-head">
+            <h3>Started scans</h3>
+            <span className="count">{batch.length}</span>
           </div>
-
-          {cur && <TargetResult run={cur} mode={mode} expected={expectedModules.length} openMod={openMod} setOpenMod={setOpenMod} />}
-        </>
+          <div className="table-wrap">
+            <table className="dt">
+              <thead>
+                <tr>
+                  <th>Target</th>
+                  <th>Status</th>
+                  <th>Progress</th>
+                  <th>Findings</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {batch.map((b) => {
+                  const s = b.id ? summaries[b.id] : undefined;
+                  const st = s ? STATUS[s.status] : undefined;
+                  return (
+                    <tr key={b.target}>
+                      <td className="value">{b.target}</td>
+                      <td>{b.error ? <Badge kind="bad">{b.error}</Badge> : st ? <Badge kind={st.kind}>{st.label}</Badge> : <Badge>starting</Badge>}</td>
+                      <td className="muted small">{s ? `${s.stage} · ${s.done}/${s.total}` : "—"}</td>
+                      <td className="muted small">{s?.counts ? `${s.counts.high} high · ${s.counts.medium} medium` : "—"}</td>
+                      <td>{b.id && <Link className="value-link" href={`/scans/${b.id}`}>Open</Link>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
     </div>
   );
-}
-
-function TargetResult({ run, mode, expected, openMod, setOpenMod }: { run: TargetRun; mode: ScanMode; expected: number; openMod: string | null; setOpenMod: (v: string | null) => void }) {
-  if (run.state === "running" && !run.res)
-    return (
-      <div className="card loading-card">
-        {Icon.fullscan({ size: 20 })}
-        <div style={{ flex: 1 }}>
-          <div>Scanning {run.target} — running {expected} modules…</div>
-          <div className="progress"><div /></div>
-        </div>
-      </div>
-    );
-  const res = run.res;
-  if (!res) return null;
-  if (!res.ok) return <Alert kind="bad" title="Scan failed">{res.error}</Alert>;
-
-  const c = res.counts ?? { high: 0, medium: 0, low: 0, info: 0 };
-  const okMods = (res.modules ?? []).filter((m): m is Extract<FullScanModule, { ok: true }> => m.ok);
-  const findings = res.findings ?? [];
-
-  return (
-    <div className="stack">
-      <AssessmentCard a={computeAssessment(res.modules ?? [])} />
-      <InventoryCard inv={buildInventory(res.modules ?? [])} title="Discovered assets" target={res.meta?.target} />
-
-      {/* progress grid */}
-      <Card title={run.target} count={`${okMods.length}/${res.modules?.length ?? 0} ok`} pad={false}>
-        <div className="card-body" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 8 }}>
-          {(res.modules ?? []).map((m) => (
-            <div key={m.id} className="target-pill" style={{ justifyContent: "flex-start" }}>
-              <span className="st" style={{ background: m.ok ? "var(--ok)" : "var(--bad)" }} />
-              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis" }}>{m.title}</span>
-              <span className="muted small">{m.ok ? `${Math.round(m.durationMs)}ms` : (m.code ?? "err")}</span>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      <div className="grid grid-4">
-        <Stat label="Findings" value={findings.length} sub={`${c.high} high · ${c.medium} medium`} accent={c.high ? "orange" : "blue"} />
-        <Stat label="Modules run" value={res.modules?.length ?? 0} sub={MODE_LABEL[mode]} accent="silver" />
-        <Stat label="Succeeded" value={okMods.length} accent="green" />
-        <Stat label="Mode" value={mode} accent="silver" />
-      </div>
-
-      {findings.length > 0 && <FindingsWithModule items={findings} />}
-
-      {/* Per-module accordion */}
-      <Card title="Results by module" pad={false}>
-        {okMods.map((m) => (
-          <div key={m.id}>
-            <button type="button" className="acc-head" aria-expanded={openMod === m.id} onClick={() => setOpenMod(openMod === m.id ? null : m.id)}>
-              <span className="muted" style={{ width: 14 }}>{openMod === m.id ? "▾" : "▸"}</span>
-              <b style={{ width: 220, flexShrink: 0 }}>{m.title}</b>
-              <span className="muted small" style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.summary}</span>
-              <span className={`tier ${m.tier}`}>{m.tier}</span>
-            </button>
-            {openMod === m.id && <div className="acc-body">{renderModule(m.id, { summary: m.summary, findings: m.findings, data: m.data })}</div>}
-          </div>
-        ))}
-        {(res.modules ?? []).filter((m) => !m.ok).map((m) => (
-          <div key={m.id} className="acc-head" style={{ cursor: "default" }}>
-            <span style={{ width: 14 }} />
-            <b style={{ width: 220, flexShrink: 0 }}>{m.title}</b>
-            <span className="muted small" style={{ flex: 1 }}>{!m.ok ? m.error : ""}</span>
-            <Badge kind="bad">failed</Badge>
-          </div>
-        ))}
-      </Card>
-    </div>
-  );
-}
-
-function FindingsWithModule({ items }: { items: (import("@/lib/types").Finding & { module: string })[] }) {
-  // Reuse the Findings card but show the source module.
-  return (
-    <>
-      <Findings items={items} />
-      <div className="muted small" style={{ marginTop: -8, paddingLeft: 2 }}>
-        Findings are aggregated from: {[...new Set(items.map((f) => f.module))].join(", ")}
-      </div>
-    </>
-  );
-}
-
-function toCsvLocal(rows: Record<string, unknown>[]): string {
-  if (!rows.length) return "";
-  const cols = [...new Set(rows.flatMap((r) => Object.keys(r)))];
-  const esc = (v: unknown) => {
-    const s = v == null ? "" : String(v);
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-  return [cols.join(","), ...rows.map((r) => cols.map((c) => esc(r[c])).join(","))].join("\n");
 }

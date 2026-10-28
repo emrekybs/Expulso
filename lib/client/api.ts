@@ -1,6 +1,9 @@
 "use client";
 import type { ModuleId } from "../modules-config.ts";
 import type { ScanResponse } from "../types.ts";
+import type { ChildScan, ModuleEntry, ScanCounts, ScanRecord, ScanSummary } from "../scan-types.ts";
+import type { Finding } from "../types.ts";
+import type { ScanMode } from "../modules-config.ts";
 import { addLog } from "./logs.ts";
 
 const CACHE_TTL = 10 * 60 * 1000;
@@ -60,61 +63,109 @@ export async function runScan<T = unknown>(module: ModuleId, target: string, opt
   return json;
 }
 
+/* ------------------------------ Scans ------------------------------ */
+
+export type FullScanModule = ModuleEntry;
+
 export interface FullScanResponse {
   ok: boolean;
   error?: string;
+  id?: string;
   meta?: { target: string; kind: string; mode: string; scannedAt: string; requestId: string; moduleCount: number };
-  findings?: (import("../types.ts").Finding & { module: string })[];
-  counts?: { high: number; medium: number; low: number; info: number };
+  findings?: (Finding & { module: string })[];
+  counts?: ScanCounts;
   modules?: FullScanModule[];
+  children?: ChildScan[];
 }
-export type FullScanModule =
-  | { id: ModuleId; title: string; tier: string; ok: true; summary: string; findings: import("../types.ts").Finding[]; data: unknown; warnings: string[]; sources: import("../types.ts").SourceStatus[]; durationMs: number }
-  | { id: ModuleId; title: string; tier: string; ok: false; error?: string; code?: string; durationMs: number };
 
-export async function runFullScan(target: string, mode: string, options?: Record<string, Record<string, unknown>>): Promise<FullScanResponse> {
-  const t0 = Date.now();
+export function toFullScanResponse(r: ScanRecord): FullScanResponse {
+  return {
+    ok: r.status === "done",
+    error: r.status === "failed" ? r.error : undefined,
+    id: r.id,
+    meta: { target: r.target, kind: r.kind, mode: r.mode, scannedAt: r.startedAt, requestId: r.requestId, moduleCount: r.modulesRun ?? r.modules.length },
+    findings: r.findings,
+    counts: r.counts,
+    modules: r.modules,
+    children: r.children,
+  };
+}
+
+export async function startScan(req: { target: string; mode: ScanMode; options?: Record<string, Record<string, unknown>>; scope?: string[]; chainLimit?: number }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
-    const res = await fetch("/api/full-scan", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ target, mode, options }) });
-    const json = (await res.json()) as FullScanResponse;
-    if (json.ok && json.modules) {
-      json.modules.forEach((m) =>
-        m.ok
-          ? addLog({ level: "ok", module: m.id, target, message: m.summary, requestId: json.meta?.requestId, durationMs: m.durationMs })
-          : addLog({ level: "error", module: m.id, target, message: m.error || "failed", detail: `code: ${m.code}`, requestId: json.meta?.requestId }),
-      );
-    } else if (!json.ok) {
-      addLog({ level: "error", module: "full-scan", target, message: json.error || "Full scan failed." });
-    }
-    return json;
+    const res = await fetch("/api/scans", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(req) });
+    const json = (await res.json()) as { ok: boolean; id?: string; error?: string };
+    if (json.ok && json.id) return { ok: true, id: json.id };
+    addLog({ level: "error", module: "full-scan", target: req.target, message: json.error || "Scan could not start." });
+    return { ok: false, error: json.error || "Scan could not start." };
   } catch {
-    addLog({ level: "error", module: "full-scan", target, message: "Could not reach the server.", durationMs: Date.now() - t0 });
+    addLog({ level: "error", module: "full-scan", target: req.target, message: "Could not reach the server." });
     return { ok: false, error: "Could not reach the server." };
   }
 }
 
-/* ------------------------------ History ------------------------------ */
-const HKEY = "recon:history";
-export interface HistoryItem {
-  target: string;
-  module: string;
-  label: string;
-  at: number;
-  summary?: string;
-}
-export function getHistory(): HistoryItem[] {
+export async function getScan(id: string): Promise<ScanRecord | null> {
   try {
-    return JSON.parse(localStorage.getItem(HKEY) || "[]") as HistoryItem[];
+    const res = await fetch(`/api/scans/${encodeURIComponent(id)}`, { cache: "no-store" });
+    const json = (await res.json()) as { ok: boolean; scan?: ScanRecord };
+    return json.ok && json.scan ? json.scan : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function listScans(): Promise<ScanSummary[]> {
+  try {
+    const res = await fetch("/api/scans", { cache: "no-store" });
+    const json = (await res.json()) as { ok: boolean; scans?: ScanSummary[] };
+    return json.ok ? json.scans ?? [] : [];
   } catch {
     return [];
   }
 }
-export function pushHistory(item: Omit<HistoryItem, "at">) {
-  try {
-    const list = getHistory().filter((h) => !(h.target === item.target && h.module === item.module));
-    list.unshift({ ...item, at: Date.now() });
-    localStorage.setItem(HKEY, JSON.stringify(list.slice(0, 40)));
-  } catch {
-    /* ignore */
+
+export async function deleteScan(id: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(`/api/scans/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const json = (await res.json()) as { ok: boolean; error?: string };
+  return json;
+}
+
+/** Polls a running scan until it finishes. onTick gets every new snapshot. */
+export async function waitForScan(id: string, onTick?: (r: ScanRecord) => void, intervalMs = 1500, isAlive: () => boolean = () => true): Promise<ScanRecord | null> {
+  for (;;) {
+    if (!isAlive()) return null;
+    const r = await getScan(id);
+    if (!r) return null;
+    onTick?.(r);
+    if (r.status !== "running") return r;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
+}
+
+/** Starts a Full Scan and waits for its result. */
+export async function runFullScan(target: string, mode: ScanMode, options?: Record<string, Record<string, unknown>>, scope?: string[]): Promise<FullScanResponse> {
+  const started = await startScan({ target, mode, options, scope });
+  if (!started.ok) return { ok: false, error: started.error };
+  const rec = await waitForScan(started.id);
+  if (!rec) return { ok: false, error: "The scan result could not be read." };
+  return toFullScanResponse(rec);
+}
+
+/** Downloads the HTML report as a PDF rendered by the local Chromium. */
+export async function downloadPdf(html: string, filename: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch("/api/report/pdf", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ html }) });
+  if (!res.ok) {
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: json.error || `PDF failed (HTTP ${res.status}).` };
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { ok: true };
 }

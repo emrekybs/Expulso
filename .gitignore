@@ -6,3 +6,6 @@ out/
 next-env.d.ts
 .env*.local
 .DS_Store
+
+# Local scan results and screenshots
+data/

@@ -2,6 +2,7 @@ import { safeFetch, UserError, mapLimit, htmlTitle } from "../net.ts";
 import type { ParsedTarget } from "../target.ts";
 import type { Finding, ModuleOutput } from "../types.ts";
 import { buildWordlist, looksLikeAdmin } from "./wordlists.ts";
+import { pickEngine, runExternalEngine } from "./dirs-engines.ts";
 
 export interface DirHit {
   path: string;
@@ -19,6 +20,7 @@ export interface DirData {
   hits: DirHit[];
   admins: DirHit[];
   stats: { found: number; admin: number; s2: number; s3: number; s4: number; s5: number };
+  engine: string;
 }
 
 interface Baseline {
@@ -37,7 +39,7 @@ async function learnBaseline(origin: string): Promise<Baseline> {
 
 export async function runDirs(
   t: ParsedTarget,
-  opts: { wordlist?: "admin" | "common" | "all"; extensions?: string; recursion?: number },
+  opts: { wordlist?: "admin" | "common" | "all"; extensions?: string; recursion?: number; engine?: string },
 ): Promise<ModuleOutput<DirData>> {
   if (t.kind === "ip" || t.kind === "cidr") throw new UserError("Directory & Admin Finder needs a domain or URL.");
   const origin = t.url ? new URL(t.url).origin : `https://${t.host}`;
@@ -51,10 +53,29 @@ export async function runDirs(
   const deadline = Date.now() + 50000;
   const warnings: string[] = [];
 
-  const baseline = await learnBaseline(origin);
   const hits: DirHit[] = [];
   const seen = new Set<string>();
   let tested = 0;
+
+  const picked = await pickEngine(opts.engine ?? "auto");
+  if (picked.note) warnings.push(picked.note);
+  if (picked.engine !== "builtin") {
+    const r = await runExternalEngine(picked.engine, origin, wordlist, deadline - Date.now());
+    if (r.error) warnings.push(`${picked.engine}: ${r.error} Results below come from the built-in engine.`);
+    if (!r.error) {
+      tested = wordlist.length;
+      for (const row of r.rows) {
+        const url = new URL(row.url);
+        const p = url.pathname;
+        if (seen.has(p)) continue;
+        seen.add(p);
+        const admin = looksLikeAdmin(p, "", "");
+        hits.push({ path: p, url: row.url, status: row.status, size: row.size, title: "", admin, redirect: row.redirect });
+      }
+    }
+  }
+
+  const baseline = await learnBaseline(origin);
 
   const scanDir = async (dir: string): Promise<string[]> => {
     const newDirs: string[] = [];
@@ -81,7 +102,8 @@ export async function runDirs(
   };
 
   let frontier = ["/"];
-  for (let depth = 0; depth <= recursion && frontier.length && Date.now() < deadline; depth++) {
+  const usedBuiltin = picked.engine === "builtin" || hits.length === 0 && tested === 0;
+  for (let depth = 0; usedBuiltin && depth <= recursion && frontier.length && Date.now() < deadline; depth++) {
     const next: string[] = [];
     for (const dir of frontier.slice(0, 8)) {
       if (Date.now() > deadline) break;
@@ -89,7 +111,7 @@ export async function runDirs(
     }
     frontier = [...new Set(next)].filter((d) => !/\b(logout|signout)\b/i.test(d));
   }
-  if (Date.now() >= deadline) warnings.push("Stopped early at the time limit; results may be partial.");
+  if (usedBuiltin && Date.now() >= deadline) warnings.push("Stopped early at the time limit; results may be partial.");
 
   hits.sort((a, b) => Number(b.admin) - Number(a.admin) || a.path.localeCompare(b.path));
   const admins = hits.filter((h) => h.admin);
@@ -120,6 +142,6 @@ export async function runDirs(
       recommendation: "Remove these files from the web root and block access.",
     });
 
-  const data: DirData = { target: t.input, origin, tested, hits, admins, stats };
-  return { summary: `${tested} paths tested · ${stats.found} found · ${stats.admin} admin`, findings, data, warnings };
+  const data: DirData = { target: t.input, origin, tested, hits, admins, stats, engine: usedBuiltin ? "built-in" : picked.engine };
+  return { summary: `${tested} paths tested (${data.engine}) · ${stats.found} found · ${stats.admin} admin`, findings, data, warnings };
 }

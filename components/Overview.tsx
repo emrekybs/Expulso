@@ -2,26 +2,45 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { MODULES, GROUPS } from "@/lib/modules-config";
+import { MODULES, GROUPS, MODE_LABEL } from "@/lib/modules-config";
 import { parseTarget, KIND_LABEL } from "@/lib/target";
-import { getHistory, type HistoryItem } from "@/lib/client/api";
+import { listScans } from "@/lib/client/api";
+import type { ScanSummary } from "@/lib/scan-types";
 import { moduleIcon } from "./icons";
+import { Card, Badge, Stat } from "./ui";
+
+interface ToolLite {
+  name: string;
+  status: "ok" | "missing" | "error";
+}
 
 export default function Overview() {
   const router = useRouter();
   const [target, setTarget] = useState("example.com");
-  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [scans, setScans] = useState<ScanSummary[] | null>(null);
+  const [tools, setTools] = useState<ToolLite[] | null>(null);
 
-  useEffect(() => setHistory(getHistory()), []);
+  useEffect(() => {
+    void listScans().then(setScans);
+    fetch("/api/tools", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j: { tools?: ToolLite[] }) => setTools(j.tools ?? []))
+      .catch(() => setTools([]));
+  }, []);
 
   const parsed = parseTarget(target);
   const kind = "error" in parsed ? null : parsed.kind;
 
   function go(e: React.FormEvent) {
     e.preventDefault();
-    sessionStorage.setItem("recon:lastTarget", target);
     router.push(`/full-scan?target=${encodeURIComponent(target)}`);
   }
+
+  const done = scans?.filter((s) => s.status === "done") ?? [];
+  const highTotal = done.reduce((n, s) => n + (s.counts?.high ?? 0), 0);
+  const running = scans?.filter((s) => s.status === "running").length ?? 0;
+  const installed = tools?.filter((t) => t.status === "ok").length ?? 0;
+  const broken = tools?.filter((t) => t.status === "error").length ?? 0;
 
   return (
     <div className="stack">
@@ -29,7 +48,7 @@ export default function Overview() {
         <h1>
           Domain recon, <span className="accent">in one place</span>
         </h1>
-        <p>Enter a domain, IP, range or URL and run a full scan or a single module. All sources are keyless; results stay in this workspace and export as JSON or CSV.</p>
+        <p>Enter a domain, IP, range or URL. A Full Scan finds subdomains, scans the live ones, checks ports and exports a PDF or HTML report. Everything runs on this computer.</p>
         <form className="search-row" onSubmit={go}>
           <div className="search-input">
             <span className="si-icon">{moduleIcon("subdomains", 18)}</span>
@@ -39,39 +58,67 @@ export default function Overview() {
           <button type="submit" className="btn-primary">Full Scan</button>
         </form>
         <div className="recent">
-          Jump to a module:
+          Or go straight to one module:
           <Link className="chip" href="/m/subdomains">Subdomains</Link>
-          <Link className="chip" href="/m/dns">DNS</Link>
-          <Link className="chip" href="/m/whois">WHOIS</Link>
-          <Link className="chip" href="/m/geoip">GeoIP &amp; ASN</Link>
-          <Link className="chip" href="/m/osint">OSINT</Link>
-          <Link className="chip" href="/m/waf">WAF / CDN</Link>
+          <Link className="chip" href="/m/ports-scan">Port Scan</Link>
+          <Link className="chip" href="/m/url-archive">Archived URLs</Link>
+          <Link className="chip" href="/m/cloud-buckets">Cloud Buckets</Link>
+          <Link className="chip" href="/m/dirs">Directories</Link>
         </div>
       </section>
 
-      {history.length > 0 && (
-        <section className="card" >
-          <div className="card-head">
-            <h3>Recent</h3>
-            <span className="count">{history.length}</span>
-          </div>
+      <div className="grid grid-4">
+        <Stat label="Scans saved" value={scans?.length ?? "—"} sub={running ? `${running} running now` : "history on the History page"} accent="silver" />
+        <Stat label="High findings (all scans)" value={highTotal} accent={highTotal ? "orange" : "green"} />
+        <Stat label="Tools installed" value={tools ? `${installed}/${tools.length}` : "—"} sub={broken ? `${broken} with errors` : "see the Tools page"} accent="blue" />
+        <Stat label="Modules" value={MODULES.length} sub="passive, light and active" accent="silver" />
+      </div>
+
+      <Card
+        title="Recent scans"
+        count={scans?.length ?? 0}
+        actions={
+          <Link className="value-link" href="/history">
+            View all
+          </Link>
+        }
+        pad={false}
+      >
+        {!scans ? (
+          <div className="card-body muted">Loading…</div>
+        ) : scans.length === 0 ? (
+          <div className="card-body muted">No scans yet. Enter a domain above to start your first Full Scan.</div>
+        ) : (
           <div className="table-wrap">
             <table className="dt">
-              <thead><tr><th>Target</th><th>Module</th><th>Summary</th><th>When</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Target</th>
+                  <th>Mode</th>
+                  <th>Status</th>
+                  <th>Findings</th>
+                  <th>Started</th>
+                </tr>
+              </thead>
               <tbody>
-                {history.slice(0, 10).map((h, i) => (
-                  <tr key={i}>
-                    <td className="value">{h.target}</td>
-                    <td><Link className="value-link" href={h.module === "overview" ? "/full-scan" : `/m/${h.module}`}>{h.label}</Link></td>
-                    <td className="muted">{h.summary || "—"}</td>
-                    <td className="muted">{new Date(h.at).toLocaleString()}</td>
+                {scans.slice(0, 8).map((s) => (
+                  <tr key={s.id}>
+                    <td>
+                      <Link className="value-link wrap-anywhere" href={`/scans/${s.id}`}>
+                        {s.target}
+                      </Link>
+                    </td>
+                    <td className="muted small">{MODE_LABEL[s.mode]}</td>
+                    <td>{s.status === "running" ? <Badge kind="warn">{s.done}/{s.total}</Badge> : s.status === "done" ? <Badge kind="ok">done</Badge> : <Badge kind="bad">failed</Badge>}</td>
+                    <td className="small">{s.counts ? `${s.counts.high} high · ${s.counts.medium} medium` : "—"}</td>
+                    <td className="muted small">{new Date(s.startedAt).toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </section>
-      )}
+        )}
+      </Card>
 
       {GROUPS.map((g) => (
         <div key={g}>
@@ -95,7 +142,7 @@ export default function Overview() {
         </div>
       ))}
 
-      <p className="disclaimer">Built for authorized security research and threat intelligence work.</p>
+      <p className="disclaimer">Built for authorized security research and threat intelligence work. Missing external tools are listed on the Tools page with install commands.</p>
     </div>
   );
 }

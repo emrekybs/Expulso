@@ -3,11 +3,16 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MODULES, GROUPS, type Group } from "@/lib/modules-config";
+import { listScans } from "@/lib/client/api";
+import type { ScanSummary } from "@/lib/scan-types";
 import { Icon, moduleIcon } from "./icons";
+
+const DOT: Record<ScanSummary["status"], string> = { running: "var(--warn)", done: "var(--ok)", failed: "var(--bad)" };
 
 export default function Sidebar({ open, onClose }: { open: boolean; onClose: () => void }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [recent, setRecent] = useState<ScanSummary[]>([]);
 
   useEffect(() => {
     try {
@@ -16,6 +21,16 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
       /* ignore */
     }
   }, []);
+
+  // Refreshed on every page change, so a scan started elsewhere shows up without a reload.
+  useEffect(() => {
+    let alive = true;
+    void listScans().then((list) => alive && setRecent(list.slice(0, 5)));
+    return () => {
+      alive = false;
+    };
+  }, [pathname]);
+
   function toggleCollapse() {
     setCollapsed((c) => {
       const n = !c;
@@ -28,7 +43,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
     });
   }
 
-  const active = (href: string) => pathname === href;
+  const active = (href: string) => pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
   const show = !collapsed;
 
   const Item = ({ href, icon, label, tier }: { href: string; icon: React.ReactNode; label: string; tier?: string }) => (
@@ -57,9 +72,15 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         <nav className="nav">
           <Item href="/" icon={Icon.overview({ size: 18 })} label="Overview" />
           <Item href="/full-scan" icon={Icon.fullscan({ size: 18 })} label="Full Scan" />
+          <Item href="/history" icon={Icon.history({ size: 18 })} label="History" />
+          {show &&
+            recent.map((s) => (
+              <Link key={s.id} href={`/scans/${s.id}`} onClick={onClose} className={`nav-link${pathname === `/scans/${s.id}` ? " active" : ""}`} title={s.target} style={{ paddingLeft: 40, minHeight: 32, fontSize: 12.5 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: DOT[s.status], flexShrink: 0 }} />
+                <span className="wrap-anywhere" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.target}</span>
+              </Link>
+            ))}
           <Item href="/assets" icon={Icon.search({ size: 18 })} label="Asset Inventory" />
-          <Item href="/tools" icon={Icon.tools({ size: 18 })} label="Tools" />
-          <Item href="/logs" icon={Icon.logs({ size: 18 })} label="Logs" />
           {GROUPS.map((g: Group) => (
             <div className="nav-group" key={g}>
               {show ? (
@@ -80,6 +101,10 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
               ))}
             </div>
           ))}
+          <div className="nav-group">
+            <Item href="/tools" icon={Icon.tools({ size: 18 })} label="Tools" />
+            <Item href="/logs" icon={Icon.logs({ size: 18 })} label="Logs" />
+          </div>
         </nav>
 
         <div className="sidebar-foot" style={collapsed ? { display: "flex", justifyContent: "center" } : { display: "flex", alignItems: "center", gap: 10 }}>

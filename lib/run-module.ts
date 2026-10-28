@@ -25,6 +25,10 @@ import { runWebTech } from "./modules/webtech.ts";
 import { runPortsPassive } from "./modules/ports-passive.ts";
 import { runAdminPanels } from "./modules/admin-panels.ts";
 import { runNucleiInfo } from "./modules/nuclei-info.ts";
+import { runPortScan } from "./modules/port-scan.ts";
+import { runUrlArchive } from "./modules/url-archive.ts";
+import { runCloudBuckets } from "./modules/cloud-buckets.ts";
+import { runAsnRanges } from "./modules/asn-ranges.ts";
 
 type Opts = Record<string, unknown>;
 
@@ -66,13 +70,17 @@ const RUNNERS: Record<ModuleId, (t: ParsedTarget, o: Opts) => Promise<ModuleOutp
   http: (t) => runHttp(t),
   waf: (t) => runWaf(t),
   js: (t, o) => runJs(t, { maxPages: Number(o.maxPages) || 25, thirdParty: o.thirdParty === true }),
-  dirs: (t, o) => runDirs(t, { wordlist: (o.wordlist as "admin" | "common" | "all") || "common", extensions: String(o.extensions ?? ""), recursion: Number(o.recursion) || 0 }),
+  dirs: (t, o) => runDirs(t, { wordlist: (o.wordlist as "admin" | "common" | "all") || "common", extensions: String(o.extensions ?? ""), recursion: Number(o.recursion) || 0, engine: String(o.engine ?? "auto") }),
   exposure: (t) => runExposure(t),
   origin: (t) => runOrigin(t),
   webtech: (t) => runWebTech(t),
   "ports-passive": (t) => runPortsPassive(t),
   "admin-panels": (t) => runAdminPanels(t),
   "nuclei-info": (t) => runNucleiInfo(t),
+  "ports-scan": (t, o) => runPortScan(t, { preset: String(o.preset ?? "common"), customPorts: String(o.customPorts ?? ""), speed: String(o.speed ?? "normal"), banners: o.banners !== false, nmap: o.nmap !== false }),
+  "url-archive": (t) => runUrlArchive(t),
+  "cloud-buckets": (t) => runCloudBuckets(t),
+  "asn-ranges": (t) => runAsnRanges(t),
 };
 
 export interface RunResult {

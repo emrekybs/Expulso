@@ -4,7 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 import { MODE_LABEL, type ScanMode } from "@/lib/modules-config";
 import { parseTarget } from "@/lib/target";
-import { runFullScan, pushHistory, type FullScanResponse } from "@/lib/client/api";
+import { runFullScan, type FullScanResponse } from "@/lib/client/api";
 import { buildInventory } from "@/lib/inventory";
 import { Alert, Card, Stat } from "./ui";
 import InventoryCard from "./InventoryCard";
@@ -30,7 +30,6 @@ function AssetsInner() {
     const r = await runFullScan(target.trim(), mode);
     setRes(r);
     setBusy(false);
-    if (r.ok) pushHistory({ target: p.host, module: "overview", label: `Asset inventory (${mode})`, summary: r.counts ? `${r.counts.high} high findings` : undefined });
     if (!r.ok) setError(r.error || "Scan failed.");
   }
 

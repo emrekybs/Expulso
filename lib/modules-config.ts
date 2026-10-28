@@ -24,7 +24,11 @@ export type ModuleId =
   | "webtech"
   | "ports-passive"
   | "admin-panels"
-  | "nuclei-info";
+  | "nuclei-info"
+  | "ports-scan"
+  | "url-archive"
+  | "cloud-buckets"
+  | "asn-ranges";
 
 /** passive: nothing is sent to the target. light: a few normal page loads. active: many requests to the target. */
 export type Tier = "passive" | "light" | "active";
@@ -72,7 +76,7 @@ export const MODULES: ModuleDef[] = [
     sources: ["crt.sh", "CertSpotter", "HackerTarget", "AlienVault OTX", "Anubis", "RapidDNS", "urlscan.io", "ThreatMiner", "Wayback Machine", "Sonar"],
     bulkLimit: 20,
     options: [
-      { key: "tools", label: "Use installed subfinder / assetfinder / findomain", type: "boolean", default: true },
+      { key: "tools", label: "Use installed subfinder / assetfinder / findomain / amass", type: "boolean", default: true },
       { key: "dnsBrute", label: "DNS brute force (built-in wordlist)", type: "boolean", default: true },
       { key: "bruteSize", label: "Brute-force wordlist", type: "select", default: "small", choices: [{ value: "small", label: "Small (150 words)" }, { value: "large", label: "Large (all words)" }] },
       { key: "resolve", label: "Resolve DNS", type: "boolean", default: true },
@@ -281,8 +285,20 @@ export const MODULES: ModuleDef[] = [
           { value: "all", label: "Common + admin + backups" },
         ],
       },
+      {
+        key: "engine",
+        label: "Engine",
+        type: "select",
+        default: "auto",
+        choices: [
+          { value: "auto", label: "Auto (feroxbuster or dirsearch if installed)" },
+          { value: "feroxbuster", label: "feroxbuster" },
+          { value: "dirsearch", label: "dirsearch" },
+          { value: "builtin", label: "Built-in engine" },
+        ],
+      },
       { key: "extensions", label: "Extensions (comma separated)", type: "text", default: "" },
-      { key: "recursion", label: "Recursion depth", type: "number", default: 1, min: 0, max: 3 },
+      { key: "recursion", label: "Recursion depth (built-in engine)", type: "number", default: 1, min: 0, max: 3 },
     ],
     fullScanOptions: { wordlist: "admin", recursion: 0 },
   },
@@ -326,6 +342,75 @@ export const MODULES: ModuleDef[] = [
     accepts: NAMES,
     sources: ["nuclei (local install)", "ProjectDiscovery templates"],
     bulkLimit: 5,
+  },
+  {
+    id: "ports-scan",
+    title: "Port Scan",
+    group: "Active",
+    tier: "active",
+    description: "TCP connect scan built into B24-engine, with service banners. Choose common ports, web ports, all 65535 ports or a custom list. Sends one connection per port to the target's addresses.",
+    accepts: HOSTS,
+    sources: ["Built-in TCP scanner"],
+    bulkLimit: 5,
+    options: [
+      {
+        key: "preset",
+        label: "Ports",
+        type: "select",
+        default: "common",
+        choices: [
+          { value: "common", label: "Common ports (about 100)" },
+          { value: "web", label: "Web ports (about 25)" },
+          { value: "full", label: "All ports (1-65535, slow)" },
+          { value: "custom", label: "Custom list" },
+        ],
+      },
+      { key: "customPorts", label: "Custom ports (e.g. 22,80,8000-8100)", type: "text", default: "" },
+      {
+        key: "speed",
+        label: "Speed",
+        type: "select",
+        default: "normal",
+        choices: [
+          { value: "careful", label: "Careful (fewer connections at once)" },
+          { value: "normal", label: "Normal" },
+          { value: "fast", label: "Fast (may miss slow hosts)" },
+        ],
+      },
+      { key: "banners", label: "Read service banners", type: "boolean", default: true },
+      { key: "nmap", label: "Service and version detection with nmap (when installed)", type: "boolean", default: true },
+    ],
+    fullScanOptions: { preset: "common", speed: "normal", banners: true, nmap: true },
+  },
+  {
+    id: "url-archive",
+    title: "Archived URLs",
+    group: "OSINT",
+    tier: "passive",
+    description: "Historic URLs for the domain from the Wayback Machine and Common Crawl. Flags archived backups, configs and version-control folders, API-style paths and the query parameter names used. Nothing is requested from the target.",
+    accepts: NAMES,
+    sources: ["Wayback Machine CDX", "Common Crawl index"],
+    bulkLimit: 20,
+  },
+  {
+    id: "cloud-buckets",
+    title: "Cloud Buckets",
+    group: "Recon",
+    tier: "passive",
+    description: "Checks storage bucket names built from the target (AWS S3, Google Cloud Storage, Azure Blob) and reports buckets that are publicly listable or exist but are private. Requests go to the cloud providers, not the target.",
+    accepts: NAMES,
+    sources: ["AWS S3", "Google Cloud Storage", "Azure Blob"],
+    bulkLimit: 10,
+  },
+  {
+    id: "asn-ranges",
+    title: "ASN Ranges",
+    group: "Recon",
+    tier: "passive",
+    description: "Maps the target's IP addresses to their autonomous systems and lists every prefix each AS announces, with address counts. Use it to see the whole network an organisation controls.",
+    accepts: HOSTS,
+    sources: ["Team Cymru (DNS)", "RIPEstat"],
+    bulkLimit: 20,
   },
 ];
 

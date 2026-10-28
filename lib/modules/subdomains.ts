@@ -144,6 +144,7 @@ const TOOL_SOURCES: Source[] = [
   { name: "subfinder", run: async (d) => toHosts((await runTool("subfinder", ["-d", d, "-silent"], 240000)), "subfinder") },
   { name: "assetfinder", run: async (d) => toHosts((await runTool("assetfinder", ["--subs-only", d], 240000)), "assetfinder") },
   { name: "findomain", run: async (d) => toHosts((await runTool("findomain", ["-t", d, "-q"], 240000)), "findomain") },
+  { name: "amass", run: async (d) => toHosts((await runTool("amass", ["enum", "-passive", "-silent", "-d", d], 300000)), "amass") },
 ];
 
 function toHosts(r: { ok: boolean; lines: string[]; error?: string }, tool: string): Found[] {

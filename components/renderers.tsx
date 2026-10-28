@@ -1,7 +1,8 @@
 "use client";
+import { useState } from "react";
 import type { ModuleId } from "@/lib/modules-config";
 import type { ModuleOutput } from "@/lib/types";
-import { Card, Stat, KeyValue, DataTable, Badge, CopyBtn, type Column } from "./ui";
+import { Card, Stat, KeyValue, DataTable, Badge, CopyBtn, Chips, type Column } from "./ui";
 import { ExportBar } from "./ExportBar";
 
 import type { SubData, SubEntry } from "@/lib/modules/subdomains";
@@ -39,7 +40,34 @@ function bytes(n?: number) {
 }
 
 /* ============================ Subdomains ============================ */
+type SubFilter = "all" | "2xx" | "3xx" | "4xx" | "5xx" | "live" | "takeover" | "unresolved";
+
 function Subdomains({ d }: { d: SubData }) {
+  const [filter, setFilter] = useState<SubFilter>("all");
+  const status = (r: SubEntry) => r.http?.status ?? 0;
+  const matches: Record<SubFilter, (r: SubEntry) => boolean> = {
+    all: () => true,
+    "2xx": (r) => status(r) >= 200 && status(r) < 300,
+    "3xx": (r) => status(r) >= 300 && status(r) < 400,
+    "4xx": (r) => status(r) >= 400 && status(r) < 500,
+    "5xx": (r) => status(r) >= 500,
+    live: (r) => !!r.http,
+    takeover: (r) => !!r.takeover,
+    unresolved: (r) => r.resolved === false,
+  };
+  const chipOptions: { value: SubFilter; label: string; count: number; warn?: boolean }[] = (
+    [
+      ["all", "All"],
+      ["2xx", "200s"],
+      ["3xx", "3xx redirects"],
+      ["4xx", "4xx"],
+      ["5xx", "5xx"],
+      ["live", "Live"],
+      ["takeover", "Takeover"],
+      ["unresolved", "Unresolved"],
+    ] as [SubFilter, string][]
+  ).map(([value, label]) => ({ value, label, count: d.entries.filter(matches[value]).length, warn: value === "takeover" }));
+  const rows = d.entries.filter(matches[filter]);
   const cols: Column<SubEntry>[] = [
     { key: "host", header: "Subdomain", render: (r) => <span className="value">{r.host}{r.takeover && <Badge kind="orange"> takeover</Badge>}</span>, value: (r) => r.host, sortable: true },
     { key: "status", header: "Status", render: (r) => (r.http ? <>{statusBadge(r.http.status)}{r.http.redirect && <div className="small muted">→ {r.http.redirect}</div>}</> : r.resolved === false ? <Badge>unresolved</Badge> : r.resolved ? (r.http === null ? <Badge kind="warn">no response</Badge> : <Badge kind="ok">resolved</Badge>) : <Badge>—</Badge>) },
@@ -60,8 +88,11 @@ function Subdomains({ d }: { d: SubData }) {
         <Stat label="Takeover candidates" value={s.takeover} accent="orange" />
         {s.screenshots > 0 && <Stat label="Screenshots" value={s.screenshots} accent="blue" />}
       </div>
-      <Card title="Subdomains" count={s.total} actions={<ExportBar baseName={`subdomains_${d.domain}`} rows={d.entries.map((e) => ({ host: e.host, status: e.http?.status ?? "", title: e.http?.title ?? "", ip: e.ips.join(" "), cname: e.cname ?? "", takeover: e.takeover?.service ?? "", sources: e.sources.join(" ") }))} json={d} text={d.entries.map((e) => e.host).join("\n")} />} pad={false}>
-        <DataTable rows={d.entries} columns={cols} filterKeys={(r) => `${r.host} ${r.ips.join(" ")} ${r.http?.title ?? ""} ${r.http?.server ?? ""}`} />
+      <Card title="Subdomains" count={rows.length} actions={<ExportBar baseName={`subdomains_${d.domain}`} rows={rows.map((e) => ({ host: e.host, status: e.http?.status ?? "", title: e.http?.title ?? "", ip: e.ips.join(" "), cname: e.cname ?? "", takeover: e.takeover?.service ?? "", sources: e.sources.join(" ") }))} json={d} text={rows.map((e) => e.host).join("\n")} />} pad={false}>
+        <div className="card-body" style={{ paddingBottom: 0 }}>
+          <Chips value={filter} onChange={setFilter} options={chipOptions} />
+        </div>
+        <DataTable rows={rows} columns={cols} filterKeys={(r) => `${r.host} ${r.ips.join(" ")} ${r.http?.title ?? ""} ${r.http?.server ?? ""}`} />
       </Card>
     </div>
   );
@@ -713,6 +744,165 @@ function AdminPanels({ d }: { d: AdminPanelsData }) {
   );
 }
 
+/* ============================ Port Scan ============================ */
+interface PortScanData {
+  preset: string;
+  portCount: number;
+  skipped: number;
+  hosts: { ip: string; open: { port: number; service: string; banner: string; tls: boolean }[] }[];
+}
+function PortScan({ d }: { d: PortScanData }) {
+  const total = d.hosts.reduce((n, h) => n + h.open.length, 0);
+  const cols: Column<PortScanData["hosts"][number]["open"][number]>[] = [
+    { key: "port", header: "Port", render: (r) => <span className="value mono">{r.port}</span>, value: (r) => r.port, sortable: true, num: true },
+    { key: "service", header: "Service", render: (r) => <Badge kind="info">{r.service}</Badge> },
+    { key: "banner", header: "Banner", render: (r) => <span className="muted small wrap-anywhere">{r.banner || (r.tls ? "TLS port (no banner read)" : "—")}</span> },
+  ];
+  return (
+    <div className="stack">
+      <div className="grid grid-3">
+        <Stat label="Open ports" value={total} accent={total ? "orange" : "green"} />
+        <Stat label="Ports checked per address" value={d.portCount} accent="silver" />
+        <Stat label="Not reached (time limit)" value={d.skipped} accent={d.skipped ? "orange" : "silver"} />
+      </div>
+      {d.hosts.map((h) => (
+        <Card key={h.ip} title={h.ip} count={`${h.open.length} open`} actions={<CopyBtn text={h.open.map((p) => `${h.ip}:${p.port}`).join("\n")} label="Copy host:port" />} pad={false}>
+          {h.open.length === 0 ? (
+            <div className="card-body muted">No open ports in this list.</div>
+          ) : (
+            <DataTable rows={h.open} columns={cols} filterKeys={(r) => `${r.port} ${r.service} ${r.banner}`} />
+          )}
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+/* ============================ Archived URLs ============================ */
+interface UrlArchiveData {
+  domain: string;
+  total: number;
+  byCategory: { javascript: number; sensitive: number; api: number; admin: number; withParameters: number };
+  parameters: { name: string; count: number }[];
+  sensitive: string[];
+  api: string[];
+  admin: string[];
+  urls: string[];
+  sources: { name: string; ok: boolean; count: number; error?: string }[];
+}
+function UrlArchive({ d }: { d: UrlArchiveData }) {
+  const [list, setList] = useState<"sensitive" | "api" | "admin" | "urls">("sensitive");
+  const items = d[list];
+  const cols: Column<{ url: string }>[] = [{ key: "url", header: "URL", render: (r) => <a className="value-link wrap-anywhere" href={r.url} target="_blank" rel="noreferrer noopener">{r.url}</a> }];
+  return (
+    <div className="stack">
+      <div className="grid grid-4">
+        <Stat label="Unique URLs" value={d.total} accent="silver" />
+        <Stat label="Sensitive file types" value={d.byCategory.sensitive} accent={d.byCategory.sensitive ? "orange" : "green"} />
+        <Stat label="API-style paths" value={d.byCategory.api} accent="blue" />
+        <Stat label="With parameters" value={d.byCategory.withParameters} accent="silver" />
+      </div>
+      <Card title="Archived URLs" count={items.length} actions={<CopyBtn text={items.join("\n")} label="Copy list" />} pad={false}>
+        <div className="card-body" style={{ paddingBottom: 0 }}>
+          <Chips
+            value={list}
+            onChange={setList}
+            options={[
+              { value: "sensitive", label: "Sensitive files", count: d.sensitive.length, warn: true },
+              { value: "api", label: "API-style", count: d.api.length },
+              { value: "admin", label: "Admin / login", count: d.admin.length },
+              { value: "urls", label: "All", count: d.urls.length },
+            ]}
+          />
+        </div>
+        <DataTable rows={items.map((url) => ({ url }))} columns={cols} filterKeys={(r) => r.url} empty="Nothing in this group." />
+      </Card>
+      {d.parameters.length > 0 && (
+        <Card title="Query parameters seen" count={d.parameters.length}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {d.parameters.slice(0, 80).map((p) => <Badge key={p.name} kind="info">{p.name} · {p.count}</Badge>)}
+          </div>
+        </Card>
+      )}
+      <Card title="Archive sources">
+        <div className="stack" style={{ gap: 6 }}>
+          {d.sources.map((s) => (
+            <div key={s.name} className="list-item">
+              <Badge kind={s.ok ? "ok" : "bad"}>{s.ok ? "ok" : "failed"}</Badge>
+              <span className="value">{s.name}</span>
+              <span className="muted small" style={{ marginLeft: "auto" }}>{s.ok ? `${s.count} URLs` : s.error}</span>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* ============================ Cloud Buckets ============================ */
+interface BucketData {
+  domain: string;
+  names: number;
+  checks: number;
+  hits: { provider: string; name: string; state: "listable" | "private" | "none" | "unknown"; url: string; keys?: string[] }[];
+}
+function Buckets({ d }: { d: BucketData }) {
+  const cols: Column<BucketData["hits"][number]>[] = [
+    { key: "provider", header: "Provider", render: (r) => <Badge kind="info">{r.provider}</Badge> },
+    { key: "name", header: "Bucket", render: (r) => <span className="value mono wrap-anywhere">{r.name}</span> },
+    { key: "state", header: "Access", render: (r) => (r.state === "listable" ? <Badge kind="bad">public listing</Badge> : <Badge kind="warn">exists, private</Badge>) },
+    { key: "keys", header: "Files shown", render: (r) => <span className="muted small wrap-anywhere">{r.keys?.length ? r.keys.slice(0, 5).join(", ") : "—"}</span> },
+    { key: "url", header: "Link", render: (r) => <a className="value-link" href={r.url} target="_blank" rel="noreferrer noopener">open</a> },
+  ];
+  const listable = d.hits.filter((h) => h.state === "listable").length;
+  return (
+    <div className="stack">
+      <div className="grid grid-3">
+        <Stat label="Public listings" value={listable} accent={listable ? "orange" : "green"} />
+        <Stat label="Existing (private)" value={d.hits.length - listable} accent="blue" />
+        <Stat label="Names checked" value={d.names} sub={`${d.checks} requests to providers`} accent="silver" />
+      </div>
+      <Card title="Buckets" count={d.hits.length} pad={false}>
+        <DataTable rows={d.hits} columns={cols} filterKeys={(r) => `${r.provider} ${r.name}`} empty="No bucket with this name pattern exists." />
+      </Card>
+    </div>
+  );
+}
+
+/* ============================ ASN Ranges ============================ */
+interface AsnData {
+  ips: { ip: string; asn: string; prefix: string; country: string; registry: string }[];
+  asns: { asn: string; name: string; ipv4Prefixes: number; ipv6Prefixes: number; addresses: number; prefixes: string[] }[];
+}
+function Asn({ d }: { d: AsnData }) {
+  return (
+    <div className="stack">
+      <div className="grid grid-3">
+        <Stat label="Autonomous systems" value={d.asns.length} accent="blue" />
+        <Stat label="Announced prefixes" value={d.asns.reduce((n, a) => n + a.ipv4Prefixes + a.ipv6Prefixes, 0)} accent="silver" />
+        <Stat label="IPv4 addresses" value={d.asns.reduce((n, a) => n + a.addresses, 0).toLocaleString("en-US")} accent="silver" />
+      </div>
+      <Card title="IP to ASN" count={d.ips.length} pad={false}>
+        <DataTable
+          rows={d.ips}
+          columns={[
+            { key: "ip", header: "IP", render: (r) => <span className="value mono">{r.ip}</span> },
+            { key: "asn", header: "ASN", render: (r) => <Badge kind="info">AS{r.asn}</Badge> },
+            { key: "prefix", header: "Matched prefix", render: (r) => <span className="muted">{r.prefix || "—"}</span> },
+            { key: "country", header: "Country", render: (r) => <span className="muted">{r.country || "—"}</span> },
+          ]}
+          filterKeys={(r) => `${r.ip} ${r.asn}`}
+        />
+      </Card>
+      {d.asns.map((a) => (
+        <Card key={a.asn} title={`AS${a.asn} · ${a.name}`} count={`${a.ipv4Prefixes} IPv4${a.ipv6Prefixes ? ` · ${a.ipv6Prefixes} IPv6` : ""}`} actions={<CopyBtn text={a.prefixes.join("\n")} label="Copy prefixes" />} pad={false}>
+          <DataTable rows={a.prefixes.map((p) => ({ p }))} columns={[{ key: "p", header: "Prefix", render: (r) => <span className="value mono">{r.p}</span> }]} filterKeys={(r) => r.p} empty="No prefixes announced." />
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 /* ============================ nuclei (info only) ============================ */
 function NucleiInfo({ d }: { d: NucleiData }) {
   return (
@@ -766,6 +956,10 @@ export function renderModule(id: ModuleId, output: ModuleOutput): React.ReactNod
     case "ports-passive": return <Ports d={data} />;
     case "admin-panels": return <AdminPanels d={data} />;
     case "nuclei-info": return <NucleiInfo d={data} />;
+    case "ports-scan": return <PortScan d={data as PortScanData} />;
+    case "url-archive": return <UrlArchive d={data as UrlArchiveData} />;
+    case "cloud-buckets": return <Buckets d={data as BucketData} />;
+    case "asn-ranges": return <Asn d={data as AsnData} />;
     default: return <pre className="hl">{JSON.stringify(output.data, null, 2)}</pre>;
   }
 }

@@ -147,3 +147,10 @@ export function registrableDomain(host: string): string {
   const keep = SECOND_LEVEL.test(host) ? 3 : 2;
   return parts.slice(-keep).join(".");
 }
+
+/** True when the host is one of the scope domains or a subdomain of one. An empty scope allows everything. */
+export function inScope(host: string, scope?: string[]): boolean {
+  if (!scope?.length) return true;
+  const h = host.toLowerCase();
+  return scope.some((s) => h === s || h.endsWith(`.${s}`));
+}

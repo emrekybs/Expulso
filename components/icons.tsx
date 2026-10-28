@@ -100,6 +100,9 @@ export const Icon: Record<string, (p: P) => React.ReactElement> = {
   menu: (p) => (
     <svg {...base(p.size)} className={p.className}><path d="M4 12h16" /><path d="M4 6h16" /><path d="M4 18h16" /></svg>
   ),
+  history: (p) => (
+    <svg {...base(p.size)} className={p.className}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" /></svg>
+  ),
 };
 
 export function moduleIcon(id: ModuleId, size = 18) {

@@ -42,16 +42,28 @@ const RISKY_PORTS = new Set([21, 23, 445, 1433, 1521, 2049, 2375, 3306, 3389, 54
 const SENSITIVE_PATH = /\/\.git|\.env|\.sql|\.bak|\.old|\.zip|\.tar|\.gz|\.save|\.swp|config\.php|wp-config|backup|\.DS_Store/i;
 const CLOUD_CNAME = /amazonaws\.com|cloudfront\.net|azurewebsites\.net|cloudapp\.net|blob\.core\.windows\.net|googleapis\.com|appspot\.com|herokuapp\.com|netlify|vercel\.app|github\.io|s3[.-]/i;
 
-export function buildInventory(modules: InvModule[]): Inventory {
+export interface InvChild {
+  host: string;
+  modules: InvModule[];
+}
+
+export function buildInventory(modules: InvModule[], children: InvChild[] = []): Inventory {
   const inv: Inventory = { subdomain: [], ip: [], port: [], webapp: [], path: [], admin: [], api: [], exposed: [], cloud: [], sensitive: [], cert: [] };
   const seenIp = new Set<string>();
+  const seenPort = new Set<string>();
   const addIp = (ip: string, detail: string | undefined, source: string) => {
     if (!ip || seenIp.has(ip)) return;
     seenIp.add(ip);
     inv.ip.push({ label: ip, detail, source });
   };
+  const addPort = (label: string, detail: string, source: string) => {
+    if (seenPort.has(label)) return;
+    seenPort.add(label);
+    inv.port.push({ label, detail, source });
+  };
 
-  for (const m of modules) {
+  const all: InvModule[] = [...modules, ...children.flatMap((c) => c.modules.map((m) => ({ ...m, title: `${m.title} · ${c.host}` })))];
+  for (const m of all) {
     if (!m.ok) continue;
     const src = m.title ?? m.id;
     const d = m.data;
@@ -134,6 +146,42 @@ export function buildInventory(modules: InvModule[]): Inventory {
     if (m.id === "exposure") {
       for (const c of arr(get(d, "checks"))) {
         if (str(get(c, "category")) === "Exposed files" && str(get(c, "status")) === "fail") inv.sensitive.push({ label: str(get(c, "evidence")) || str(get(c, "title")), detail: str(get(c, "title")), source: src, url: str(get(c, "evidence")) });
+      }
+    }
+
+    if (m.id === "ports-scan") {
+      for (const h of arr(get(d, "hosts"))) {
+        const ip = str(get(h, "ip"));
+        addIp(ip, undefined, src);
+        for (const p of arr(get(h, "open"))) {
+          const port = Number(get(p, "port"));
+          const banner = str(get(p, "banner"));
+          const detail = [str(get(p, "service")), banner].filter(Boolean).join(" · ");
+          addPort(`${ip}:${port}`, detail, src);
+          if (RISKY_PORTS.has(port)) inv.exposed.push({ label: `${ip}:${port}`, detail: `${str(get(p, "service"))} (open to a TCP connection)`, source: src });
+        }
+      }
+    }
+
+    if (m.id === "url-archive") {
+      for (const u of ((get(d, "api") as string[] | undefined) ?? []).slice(0, 200)) inv.api.push({ label: u, detail: "archived", source: src, url: u });
+      for (const u of ((get(d, "sensitive") as string[] | undefined) ?? []).slice(0, 200)) inv.sensitive.push({ label: u, detail: "archived · check the live site", source: src, url: u });
+      for (const u of ((get(d, "admin") as string[] | undefined) ?? []).slice(0, 100)) inv.admin.push({ label: u, detail: "archived", source: src, url: u });
+    }
+
+    if (m.id === "cloud-buckets") {
+      for (const h of arr(get(d, "hits"))) {
+        const label = `${str(get(h, "provider"))}: ${str(get(h, "name"))}`;
+        if (str(get(h, "state")) === "listable") inv.sensitive.push({ label, detail: "public listing: anyone can list the files", source: src, url: str(get(h, "url")) });
+        else if (str(get(h, "state")) === "private") inv.cloud.push({ label, detail: "exists, access denied", source: src, url: str(get(h, "url")) });
+      }
+    }
+
+    if (m.id === "asn-ranges") {
+      for (const a of arr(get(d, "asns"))) {
+        const v4 = Number(get(a, "ipv4Prefixes")) || 0;
+        const addresses = Number(get(a, "addresses")) || 0;
+        inv.ip.push({ label: `AS${str(get(a, "asn"))} ${str(get(a, "name"))}`, detail: `${v4} IPv4 prefix(es) · ${addresses.toLocaleString("en-US")} addresses`, source: src });
       }
     }
 

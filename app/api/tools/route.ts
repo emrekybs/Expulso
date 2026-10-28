@@ -16,6 +16,6 @@ export async function GET() {
   }
   return NextResponse.json({
     tools: await toolStatuses(),
-    chromium: { ...chromium, install: "npx playwright install chromium" },
+    chromium: { ...chromium, install: "npx playwright install chromium", updatable: true },
   });
 }
