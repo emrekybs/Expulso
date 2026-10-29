@@ -79,9 +79,6 @@ export const Icon: Record<string, (p: P) => React.ReactElement> = {
   "admin-panels": (p) => (
     <svg {...base(p.size)} className={p.className}><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18" /><path d="M9 21V9" /><circle cx="6" cy="6" r=".6" /></svg>
   ),
-  "nuclei-info": (p) => (
-    <svg {...base(p.size)} className={p.className}><circle cx="12" cy="12" r="3" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4M5 5l3 3M16 16l3 3M5 19l3-3M16 8l3-3" /></svg>
-  ),
   origin: (p) => (
     <svg {...base(p.size)} className={p.className}><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 0 1 2.5 8.24" /><path d="m12 13 2 2 4-4" /></svg>
   ),

@@ -24,7 +24,6 @@ export type ModuleId =
   | "webtech"
   | "ports-passive"
   | "admin-panels"
-  | "nuclei-info"
   | "ports-scan"
   | "url-archive"
   | "cloud-buckets"
@@ -333,16 +332,6 @@ export const MODULES: ModuleDef[] = [
     accepts: NAMES,
     sources: ["Target website (path requests)"],
     bulkLimit: 10,
-  },
-  {
-    id: "nuclei-info",
-    title: "nuclei (info only)",
-    group: "Active",
-    tier: "active",
-    description: "Runs the installed nuclei with info-severity technology and panel templates only. It is an information-gathering step, not a vulnerability scan. Requires nuclei on this machine.",
-    accepts: NAMES,
-    sources: ["nuclei (local install)", "ProjectDiscovery templates"],
-    bulkLimit: 5,
   },
   {
     id: "ports-scan",

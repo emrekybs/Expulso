@@ -99,6 +99,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
               {MODULES.filter((m) => m.group === g).map((m) => (
                 <Item key={m.id} href={`/m/${m.id}`} icon={moduleIcon(m.id, 18)} label={m.title} tier={m.tier} />
               ))}
+              {g === "Vulnerability" && <Item href="/nuclei" icon={Icon.search({ size: 18 })} label="Nuclei" />}
             </div>
           ))}
           <div className="nav-group">

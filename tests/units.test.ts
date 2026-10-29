@@ -202,19 +202,54 @@ test("assessment: score drops with severity, grade and priorities are ordered", 
 });
 
 // ---------------- B24-engine: nuclei info-only parser, screenshots, wordlist ----------------
-import { parseNucleiJsonl } from "../lib/modules/nuclei-info.ts";
+import { parseNucleiJsonl } from "../lib/nuclei-core.ts";
 import { shotFileName } from "../lib/screenshot.ts";
 import { SUB_WORDS } from "../lib/modules/sub-words.ts";
 
-test("nuclei parser keeps info detections and drops anything else", () => {
-  const hits = parseNucleiJsonl([
-    JSON.stringify({ "template-id": "tech-detect", info: { name: "Wappalyzer Technology Detection", severity: "info", tags: ["tech"] }, "matched-at": "https://a.example" }),
-    JSON.stringify({ "template-id": "wp-login", info: { name: "WordPress Login", severity: "info", tags: "panel,wordpress" }, "matched-at": "https://a.example/wp-login.php" }),
-    JSON.stringify({ "template-id": "cve-x", info: { name: "Some CVE", severity: "high", tags: "cve" }, "matched-at": "https://a.example" }),
+test("nuclei parser keeps every severity, maps critical to high, and reads CVE and CWE", () => {
+  const findings = parseNucleiJsonl([
+    JSON.stringify({ "template-id": "tech-detect", info: { name: "Technology Detection", severity: "info", tags: ["tech"] }, "matched-at": "https://a.example" }),
+    JSON.stringify({ "template-id": "cve-2021-1", info: { name: "Example RCE", severity: "critical", description: "Remote code execution.", classification: { "cve-id": ["CVE-2021-1"], "cwe-id": ["94"] }, reference: ["https://example.org/advisory"] }, "matched-at": "https://a.example/app" }),
     "not json",
   ]);
-  assert.equal(hits.length, 2);
-  assert.deepEqual(hits[1].tags, ["panel", "wordpress"]);
+  assert.equal(findings.length, 2);
+  assert.equal(findings[0].severity, "info");
+  assert.equal(findings[1].severity, "high");
+  assert.match(findings[1].title, /^\[critical\] Example RCE/);
+  assert.match(findings[1].detail, /CVE: CVE-2021-1/);
+  assert.equal(findings[1].cwe, "CWE-94");
+  assert.deepEqual(findings[1].references, ["https://example.org/advisory"]);
+});
+
+test("nuclei request validation and argument building", async () => {
+  const n = await import("../lib/nuclei-core.ts");
+  const base = { targets: ["https://a.example"], severities: ["high", "critical"], tags: [], templates: ["cves"], automatic: false, rateLimit: 50, concurrency: 10 };
+  assert.equal(n.validateNuclei(base), null);
+  assert.match(n.validateNuclei({ ...base, templates: [], tags: [] }) ?? "", /Choose/);
+  assert.match(n.validateNuclei({ ...base, severities: ["bogus"] }) ?? "", /severity/);
+  assert.match(n.validateNuclei({ ...base, rateLimit: 0 }) ?? "", /Rate limit/);
+  const args = n.buildNucleiArgs({ ...base, tags: ["kev"], automatic: true }, "t.txt");
+  assert.deepEqual(args.slice(args.indexOf("-severity"), args.indexOf("-severity") + 2), ["-severity", "high,critical"]);
+  assert.ok(args.includes("-as") && args.includes("-tags") && args.includes("cves/"));
+  assert.equal(n.normaliseTargets(["8.8.8.8"]).error, undefined);
+  assert.match(n.normaliseTargets(["192.168.1.5"]).error ?? "", /private/);
+  assert.match(n.normaliseTargets(["10.0.0.0/24"]).error ?? "", /Ranges/);
+});
+
+test("installer picks the Linux asset and finds the binary in an extracted tree", async () => {
+  const inst = await import("../lib/installer.ts");
+  const assets = [{ name: "nuclei_3.3.0_windows_amd64.zip" }, { name: "nuclei_3.3.0_linux_amd64.zip" }, { name: "nuclei_3.3.0_checksums.txt" }];
+  assert.equal(inst.pickAsset(assets, "^nuclei_.*_linux_amd64\\.zip$")?.name, "nuclei_3.3.0_linux_amd64.zip");
+  assert.equal(inst.pickAsset(assets, "^httpx_.*_linux_amd64\\.zip$"), undefined);
+  const fsMod = await import("node:fs");
+  const os = await import("node:os");
+  const pathMod = await import("node:path");
+  const dir = fsMod.mkdtempSync(pathMod.join(os.tmpdir(), "b24-inst-"));
+  fsMod.mkdirSync(pathMod.join(dir, "nuclei_3.3.0_linux_amd64"));
+  fsMod.writeFileSync(pathMod.join(dir, "nuclei_3.3.0_linux_amd64", "nuclei"), "x");
+  assert.match(inst.findFileIn(dir, "nuclei") ?? "", /nuclei$/);
+  assert.equal(inst.findFileIn(dir, "missing"), null);
+  fsMod.rmSync(dir, { recursive: true, force: true });
 });
 
 test("screenshot file names are safe and deterministic", () => {

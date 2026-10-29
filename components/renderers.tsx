@@ -25,7 +25,6 @@ import type { OriginData } from "@/lib/modules/origin";
 import type { WebTechData } from "@/lib/modules/webtech";
 import type { PortsData } from "@/lib/modules/ports-passive";
 import type { AdminPanelsData } from "@/lib/modules/admin-panels";
-import type { NucleiData } from "@/lib/modules/nuclei-info";
 
 function statusBadge(status: number | null | undefined) {
   if (status == null) return <Badge>—</Badge>;
@@ -903,32 +902,6 @@ function Asn({ d }: { d: AsnData }) {
   );
 }
 
-/* ============================ nuclei (info only) ============================ */
-function NucleiInfo({ d }: { d: NucleiData }) {
-  return (
-    <div className="stack">
-      <div className="grid grid-3">
-        <Stat label="Detections" value={d.hits.length} accent="blue" />
-        <Stat label="Panel templates" value={d.hits.filter((h) => h.tags.includes("panel")).length} accent="orange" />
-        <Stat label="Tech templates" value={d.hits.filter((h) => h.tags.includes("tech")).length} accent="silver" />
-      </div>
-      <Card title="Information-gathering detections" count={d.hits.length} pad={false}>
-        <DataTable
-          rows={d.hits}
-          columns={[
-            { key: "name", header: "Detection", render: (r) => <span className="value">{r.name}</span> },
-            { key: "tags", header: "Tags", render: (r) => <span className="muted small">{r.tags.join(", ")}</span> },
-            { key: "matchedAt", header: "Matched at", render: (r) => <span className="muted small wrap-anywhere">{r.matchedAt}</span> },
-            { key: "extracted", header: "Extracted", render: (r) => <span className="muted small wrap-anywhere">{r.extracted.join(", ") || "—"}</span> },
-          ]}
-          filterKeys={(r) => `${r.name} ${r.tags.join(" ")}`}
-          empty="No technology or panel detections."
-        />
-      </Card>
-    </div>
-  );
-}
-
 /* ============================ Dispatch ============================ */
 export function renderModule(id: ModuleId, output: ModuleOutput): React.ReactNode {
   const data = output.data as never;
@@ -955,7 +928,6 @@ export function renderModule(id: ModuleId, output: ModuleOutput): React.ReactNod
     case "webtech": return <WebTech d={data} />;
     case "ports-passive": return <Ports d={data} />;
     case "admin-panels": return <AdminPanels d={data} />;
-    case "nuclei-info": return <NucleiInfo d={data} />;
     case "ports-scan": return <PortScan d={data as PortScanData} />;
     case "url-archive": return <UrlArchive d={data as UrlArchiveData} />;
     case "cloud-buckets": return <Buckets d={data as BucketData} />;

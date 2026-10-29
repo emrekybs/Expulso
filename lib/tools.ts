@@ -1,6 +1,9 @@
 import "server-only";
+import fs from "node:fs";
+import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { BIN_DIR, TOOLS_DIR, installRelease, type ReleaseSpec } from "./installer.ts";
 
 const exec = promisify(execFile);
 const WIN = process.platform === "win32";
@@ -17,6 +20,8 @@ export interface ToolDef {
   updateNote?: string;
   /** Used by a module when installed. The module falls back to its built-in engine otherwise. */
   usedBy?: string;
+  /** Linux release to install with one click into data/tools/bin. */
+  release?: ReleaseSpec;
 }
 
 /** External command-line tools B24-engine can use when they are installed on this machine. */
@@ -26,6 +31,7 @@ export const TOOL_INFO: Record<string, ToolDef> = {
     install: "go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest",
     versionArgs: ["-version"],
     update: { label: "Update with go install", steps: [["go", "install", "-v", "github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest"]] },
+    release: { repo: "projectdiscovery/subfinder", asset: "^subfinder_.*_linux_amd64\\.zip$", kind: "zip", binary: "subfinder" },
     usedBy: "Subdomains",
   },
   assetfinder: {
@@ -50,17 +56,46 @@ export const TOOL_INFO: Record<string, ToolDef> = {
     usedBy: "Subdomains",
   },
   nuclei: {
-    purpose: "Information-gathering templates only: technology and panel detection (no vulnerability templates)",
-    install: "go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest && nuclei -update-templates",
+    purpose: "Template-based scanner: CVEs, exposures, misconfigurations and technology detection (runs from the Nuclei page)",
+    install: "Install from the Tools page (Linux)",
     versionArgs: ["-version"],
-    update: {
-      label: "Update binary and templates",
-      steps: [
-        ["nuclei", "-update"],
-        ["nuclei", "-update-templates"],
-      ],
-    },
-    usedBy: "nuclei (info only)",
+    release: { repo: "projectdiscovery/nuclei", asset: "^nuclei_.*_linux_amd64\\.zip$", kind: "zip", binary: "nuclei" },
+    usedBy: "Nuclei page, auto pipeline",
+  },
+  httpx: {
+    purpose: "Probes hosts for live HTTP services, status codes and technologies",
+    install: "Install from the Tools page (Linux)",
+    versionArgs: ["-version"],
+    release: { repo: "projectdiscovery/httpx", asset: "^httpx_.*_linux_amd64\\.zip$", kind: "zip", binary: "httpx" },
+    usedBy: "Auto pipeline",
+  },
+  naabu: {
+    purpose: "Fast port discovery (ProjectDiscovery)",
+    install: "Install from the Tools page (Linux)",
+    versionArgs: ["-version"],
+    release: { repo: "projectdiscovery/naabu", asset: "^naabu_.*_linux_amd64\\.zip$", kind: "zip", binary: "naabu" },
+    usedBy: "Auto pipeline",
+  },
+  dalfox: {
+    purpose: "XSS scanner for URLs with parameters",
+    install: "Install from the Tools page (Linux)",
+    versionArgs: ["version"],
+    release: { repo: "hahwul/dalfox", asset: "^dalfox_.*_linux_amd64\\.tar\\.gz$", kind: "tar.gz", binary: "dalfox" },
+    usedBy: "Dalfox page, auto pipeline",
+  },
+  gau: {
+    purpose: "Collects known URLs for a domain from web archives",
+    install: "Install from the Tools page (Linux)",
+    versionArgs: ["--version"],
+    release: { repo: "lc/gau", asset: "^gau_.*_linux_amd64\\.tar\\.gz$", kind: "tar.gz", binary: "gau" },
+    usedBy: "Dalfox page, SQL page, auto pipeline",
+  },
+  sqlmap: {
+    purpose: "SQL injection detection (runs with python3)",
+    install: "Install from the Tools page (Linux, needs python3)",
+    versionArgs: ["--version"],
+    release: { repo: "sqlmapproject/sqlmap", asset: "", kind: "sqlmap", binary: "sqlmap.py" },
+    usedBy: "SQL Injection page, auto pipeline",
   },
   nmap: {
     purpose: "Service and version detection for open ports",
@@ -100,8 +135,21 @@ export interface ToolStatus {
   updateNote?: string;
 }
 
+/** Tools installed from the panel live in data/tools (sqlmap as a folder, the rest in bin). */
+function localPath(name: string): string | null {
+  const local = TOOL_INFO[name]?.release?.kind === "sqlmap" ? path.join(TOOLS_DIR, "sqlmap", "sqlmap.py") : path.join(BIN_DIR, name);
+  return fs.existsSync(local) ? local : null;
+}
+
+/** Command and leading arguments for a tool path. Python scripts run through python3. */
+function invocation(name: string, file: string): [string, string[]] {
+  return TOOL_INFO[name]?.release?.kind === "sqlmap" ? ["python3", [file]] : [file, []];
+}
+
 export async function toolPath(name: string): Promise<string | null> {
   if (!/^[a-z0-9_-]+$/i.test(name)) return null;
+  const local = localPath(name);
+  if (local) return local;
   try {
     const { stdout } = await exec(WIN ? "where" : "which", [name], { timeout: 4000 });
     return stdout.split(/\r?\n/)[0].trim() || null;
@@ -114,10 +162,11 @@ function firstLine(text: string): string | null {
   return text.split(/\r?\n/).map((l) => l.trim()).find(Boolean)?.slice(0, 120) ?? null;
 }
 
-async function versionOf(path: string, args: string[] | null): Promise<{ version: string | null; error?: string }> {
+async function versionOf(name: string, file: string, args: string[] | null): Promise<{ version: string | null; error?: string }> {
   if (!args) return { version: "installed (no version flag)" };
+  const [cmd, pre] = invocation(name, file);
   try {
-    const { stdout, stderr } = await exec(path, args, { timeout: 8000, shell: WIN });
+    const { stdout, stderr } = await exec(cmd, [...pre, ...args], { timeout: 8000, shell: WIN });
     return { version: firstLine(`${stdout}\n${stderr}`) };
   } catch (e) {
     const err = e as { stdout?: string; stderr?: string; killed?: boolean; code?: number | string };
@@ -133,13 +182,13 @@ async function statusOf(name: string, def: ToolDef): Promise<ToolStatus> {
     purpose: def.purpose,
     install: def.install,
     usedBy: def.usedBy,
-    updatable: !!def.update,
-    updateLabel: def.update?.label,
+    updatable: !!def.update || !!def.release,
+    updateLabel: def.release ? "Install the latest release" : def.update?.label,
     updateNote: def.updateNote,
   };
   const path = await toolPath(name);
   if (!path) return { ...base, status: "missing", installed: false, path: null, version: null };
-  const v = await versionOf(path, def.versionArgs);
+  const v = await versionOf(name, path, def.versionArgs);
   return v.error
     ? { ...base, status: "error", installed: true, path, version: null, error: v.error }
     : { ...base, status: "ok", installed: true, path, version: v.version };
@@ -160,10 +209,11 @@ export interface ToolRun {
  * timeout after printing useful output, so partial stdout is still returned.
  */
 export async function runTool(name: string, args: string[], timeoutMs: number): Promise<ToolRun> {
-  const path = await toolPath(name);
-  if (!path) return { ok: false, lines: [], error: `${name} is not installed. Install it with: ${TOOL_INFO[name]?.install ?? "see the tool's documentation"}` };
+  const file = await toolPath(name);
+  if (!file) return { ok: false, lines: [], error: `${name} is not installed. Install it with: ${TOOL_INFO[name]?.install ?? "see the tool's documentation"}` };
+  const [cmd, pre] = invocation(name, file);
   try {
-    const { stdout } = await exec(path, args, { timeout: timeoutMs, maxBuffer: 50 * 1024 * 1024 });
+    const { stdout } = await exec(cmd, [...pre, ...args], { timeout: timeoutMs, maxBuffer: 50 * 1024 * 1024 });
     return { ok: true, lines: stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean) };
   } catch (e) {
     const err = e as { stdout?: string; killed?: boolean; code?: number | string };
@@ -209,9 +259,13 @@ async function runSteps(name: string, steps: string[][]): Promise<UpdateResult> 
 export async function runToolUpdate(name: string): Promise<UpdateResult> {
   const def = TOOL_INFO[name];
   if (!def) return { ok: false, name, steps: [], output: "", error: "Unknown tool." };
+  if (def.release) {
+    const r = await installRelease(name, def.release);
+    return { ok: r.ok, name, steps: [{ command: `install ${def.release.repo}`, ok: r.ok }], output: r.log.join("\n"), error: r.error };
+  }
   if (!def.update) return { ok: false, name, steps: [], output: "", error: def.updateNote ?? "This tool has no automatic update." };
   if (!(await toolPath(name))) return { ok: false, name, steps: [], output: "", error: `${name} is not installed. Install it first: ${def.install}` };
-  return runSteps(name, def.update.steps);
+  return runSteps(name, def.update!.steps);
 }
 
 /** Installs the Chromium build that screenshots and PDF reports use. */

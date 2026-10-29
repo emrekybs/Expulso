@@ -132,8 +132,8 @@ export default function ToolsView() {
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   {t.updatable && (
-                    <button type="button" className="btn btn-sm" disabled={busy !== null || !t.installed} onClick={() => update(t.name)} title={t.updateLabel}>
-                      {busy === t.name ? "Updating…" : "Update"}
+                    <button type="button" className="btn btn-sm" disabled={busy !== null} onClick={() => update(t.name)} title={t.updateLabel}>
+                      {busy === t.name ? (t.installed ? "Updating…" : "Installing…") : t.installed ? "Update" : "Install"}
                     </button>
                   )}
                   {result && (

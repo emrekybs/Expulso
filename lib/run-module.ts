@@ -24,7 +24,6 @@ import { runOrigin } from "./modules/origin.ts";
 import { runWebTech } from "./modules/webtech.ts";
 import { runPortsPassive } from "./modules/ports-passive.ts";
 import { runAdminPanels } from "./modules/admin-panels.ts";
-import { runNucleiInfo } from "./modules/nuclei-info.ts";
 import { runPortScan } from "./modules/port-scan.ts";
 import { runUrlArchive } from "./modules/url-archive.ts";
 import { runCloudBuckets } from "./modules/cloud-buckets.ts";
@@ -77,7 +76,6 @@ const RUNNERS: Record<ModuleId, (t: ParsedTarget, o: Opts) => Promise<ModuleOutp
   webtech: (t) => runWebTech(t),
   "ports-passive": (t) => runPortsPassive(t),
   "admin-panels": (t) => runAdminPanels(t),
-  "nuclei-info": (t) => runNucleiInfo(t),
   "ports-scan": (t, o) => runPortScan(t, { preset: String(o.preset ?? "common"), customPorts: String(o.customPorts ?? ""), speed: String(o.speed ?? "normal"), banners: o.banners !== false, nmap: o.nmap !== false }),
   "url-archive": (t) => runUrlArchive(t),
   "cloud-buckets": (t) => runCloudBuckets(t),
