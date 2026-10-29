@@ -2,6 +2,7 @@
 // First run: installs dependencies and builds. Later runs: starts the server and opens the browser.
 import { existsSync, rmSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
+import net from "node:net";
 import { platform } from "node:os";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -9,8 +10,27 @@ import path from "node:path";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 process.chdir(root);
 const win = platform() === "win32";
-const PORT = process.env.PORT || "3000";
+
+// Returns true when nothing is listening on the port. Checked before starting, so an old B24 window
+// still running on the port does not make the new start fail silently.
+function portFree(port) {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once("error", () => resolve(false));
+    probe.once("listening", () => probe.close(() => resolve(true)));
+    probe.listen(port);
+  });
+}
+
+async function pickPort(start) {
+  for (let p = start; p < start + 20; p++) if (await portFree(p)) return p;
+  return null;
+}
+
+const requested = Number(process.env.PORT) || 3000;
+const PORT = String((await pickPort(requested)) ?? requested);
 const url = `http://localhost:${PORT}`;
+if (PORT !== String(requested)) console.log(`\nPort ${requested} is already in use (an earlier B24-engine may still be running). Using port ${PORT} instead.`);
 
 function run(cmd, args) {
   const r = spawnSync(cmd, args, { stdio: "inherit", shell: win });
