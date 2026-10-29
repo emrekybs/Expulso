@@ -205,3 +205,24 @@ test("settings: proxy URL validation and merge with defaults", async () => {
   const merged = s.mergeSettings({ burp: { enabled: true } });
   assert.deepEqual("settings" in merged && merged.settings.burp, { enabled: true, url: "http://127.0.0.1:8080", ignoreTls: true });
 });
+
+test("autopipeline: host selection, httpx parsing, request parsing and plan", async () => {
+  const c = await import("../lib/autopipe-core.ts");
+  const req = (await import("../lib/autopipe-request.ts")).parsePipelineBody;
+  const hosts = [{ host: "a", status: 301 }, { host: "b", status: 200 }, { host: "c", status: 403 }, { host: "d", status: null }];
+  assert.deepEqual(c.selectHosts(hosts, "2xx", 10).map((h) => h.host), ["b"]);
+  assert.deepEqual(c.selectHosts(hosts, "2xx-3xx", 10).map((h) => h.host), ["b", "a"]);
+  assert.equal(c.selectHosts(hosts, "all", 2).length, 2);
+  const rows = c.parseHttpxJsonl([
+    "[INF] banner",
+    JSON.stringify({ url: "https://app.example.com", input: "app.example.com", status_code: 200, title: "Login", tech: ["Nginx"] }),
+    "not json",
+  ]);
+  assert.deepEqual(rows, [{ host: "app.example.com", status: 200, title: "Login", tech: ["Nginx"], url: "https://app.example.com" }]);
+  const parsed = req({ targets: "https://Example.com/path, example.org", authorized: true, nucleiTags: ["sqli"] });
+  assert.ok("request" in parsed && parsed.request.targets.join(",") === "example.com,example.org");
+  assert.match((req({ targets: "example.com", authorized: false }) as { error: string }).error, /authorised/);
+  const plan = c.planLines(parsed.request as never, { nuclei: false, httpx: true });
+  assert.equal(plan.length, 6);
+  assert.match(plan.find((p) => p.stage === "nuclei (automatic)")?.note ?? "", /skipped/);
+});

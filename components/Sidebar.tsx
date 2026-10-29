@@ -72,6 +72,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
         <nav className="nav">
           <Item href="/" icon={Icon.overview({ size: 18 })} label="Overview" />
           <Item href="/full-scan" icon={Icon.fullscan({ size: 18 })} label="Full Scan" />
+          <Item href="/autopipe" icon={Icon.fullscan({ size: 18 })} label="Autopipeline" />
           <Item href="/history" icon={Icon.history({ size: 18 })} label="History" />
           {show &&
             recent.map((s) => (
