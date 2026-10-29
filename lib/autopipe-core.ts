@@ -22,6 +22,8 @@ export interface PipelineRequest {
   nucleiTags: string[];
   urlLimit: number;
   authorized: boolean;
+  /** global: follow the Settings switch. on / off: force the proxy for this run. */
+  proxyMode: "global" | "on" | "off";
 }
 
 export const ALL_STAGES_ON: Record<StageId, boolean> = { subdomains: true, probe: true, nucleiAs: true, urlParams: true, xss: true, sqli: true };
@@ -34,6 +36,7 @@ export function validatePipeline(r: PipelineRequest): string | null {
   if (!(r.urlLimit >= 1 && r.urlLimit <= 200)) return "URL limit per test must be between 1 and 200.";
   if (r.nucleiTags.some((t) => !/^[a-z0-9-]{1,40}$/.test(t))) return "Nuclei tags use lower-case letters, digits and dashes only.";
   if (!(["2xx", "2xx-3xx", "all"] as string[]).includes(r.statusFilter)) return "Unknown status filter.";
+  if (!(["global", "on", "off"] as string[]).includes(r.proxyMode)) return "Unknown proxy mode.";
   return null;
 }
 

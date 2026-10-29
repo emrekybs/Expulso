@@ -15,6 +15,7 @@ import { NUCLEI_SEVERITIES } from "./nuclei-core.ts";
 import { xssCandidates } from "./dalfox-core.ts";
 import { sqliCandidates } from "./sqli-core.ts";
 import { parseHttpxJsonl, selectHosts, STAGES, type PipelineRequest, type StageId, type ProbeRow } from "./autopipe-core.ts";
+import { activeProxy, proxyAddress, proxyScope } from "./settings.ts";
 
 // Autopipeline: one run per domain. Each stage writes its result to the record and to data/pipelines,
 // so a finished stage is never lost, even when a later stage fails.
@@ -37,7 +38,7 @@ export interface StageResult {
 export interface PipelineRecord {
   id: string;
   target: string;
-  status: "queued" | "running" | "done" | "failed";
+  status: "queued" | "running" | "paused" | "stopped" | "done" | "failed";
   createdAt: string;
   finishedAt?: string;
   request: PipelineRequest;
@@ -84,8 +85,48 @@ function stageRecord(rec: PipelineRecord, id: StageId): StageResult {
   return rec.stages.find((s) => s.id === id)!;
 }
 
+interface Control {
+  paused: boolean;
+  stop: boolean;
+}
+const controls = new Map<string, Control>();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Pause and stop requests. Stop takes effect when the stage that is running finishes. */
+export function controlRun(id: string, action: "pause" | "resume" | "stop"): boolean {
+  const c = controls.get(id);
+  if (!c) return false;
+  if (action === "pause") c.paused = true;
+  if (action === "resume") c.paused = false;
+  if (action === "stop") {
+    c.stop = true;
+    c.paused = false;
+  }
+  return true;
+}
+
+/** Waits while paused. Returns false when the run has been stopped. */
+async function gate(rec: PipelineRecord): Promise<boolean> {
+  const c = controls.get(rec.id);
+  if (!c) return true;
+  if (c.paused && !c.stop) {
+    rec.status = "paused";
+    await save(rec);
+    while (c.paused && !c.stop) await sleep(1000);
+    rec.status = "running";
+    await save(rec);
+  }
+  return !c.stop;
+}
+
 async function runStage(rec: PipelineRecord, id: StageId, fn: (s: StageResult) => Promise<void>) {
   const s = stageRecord(rec, id);
+  if (!(await gate(rec)) || controls.get(rec.id)?.stop) {
+    s.status = "skipped";
+    s.summary = "Stopped before this stage.";
+    await save(rec);
+    return;
+  }
   if (!rec.request.stages[id]) {
     s.status = "skipped";
     s.summary = "Turned off for this run.";
@@ -246,20 +287,23 @@ export async function startPipelines(req: PipelineRequest): Promise<string[]> {
     records.push(rec);
     await save(rec);
   }
-  void (async () => {
+  const proxy = req.proxyMode === "off" ? null : req.proxyMode === "on" ? proxyAddress() : activeProxy();
+  void proxyScope.run({ proxy }, async () => {
     for (const rec of records) {
+      controls.set(rec.id, { paused: false, stop: false });
       rec.status = "running";
       await save(rec);
       try {
         await runDomain(rec);
-        rec.status = "done";
+        rec.status = controls.get(rec.id)?.stop ? "stopped" : "done";
       } catch (e) {
         rec.status = "failed";
         rec.error = (e as Error).message;
       }
+      controls.delete(rec.id);
       rec.finishedAt = new Date().toISOString();
       await save(rec);
     }
-  })();
+  });
   return ids;
 }

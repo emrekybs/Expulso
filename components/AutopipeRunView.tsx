@@ -4,7 +4,7 @@ import { Alert, Badge, Card, Findings } from "./ui";
 import type { PipelineRecord } from "@/lib/autopipe";
 import type { Finding } from "@/lib/types";
 
-const STATUS_KIND: Record<string, "ok" | "warn" | "bad" | undefined> = { done: "ok", running: "warn", failed: "bad", skipped: undefined, pending: undefined };
+const STATUS_KIND: Record<string, "ok" | "warn" | "bad" | undefined> = { done: "ok", running: "warn", paused: "warn", stopped: undefined, failed: "bad", skipped: undefined, pending: undefined, queued: undefined };
 
 export default function AutopipeRunView({ id }: { id: string }) {
   const [run, setRun] = useState<PipelineRecord | null>(null);
@@ -31,6 +31,10 @@ export default function AutopipeRunView({ id }: { id: string }) {
     };
   }, [id]);
 
+  async function control(action: "pause" | "resume" | "stop") {
+    await fetch(`/api/autopipe/${encodeURIComponent(id)}/control`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
+  }
+
   if (missing) return <Alert kind="bad" title="Run not found">It may have been deleted.</Alert>;
   if (!run) return <div className="card loading-card"><div>Loading run…</div></div>;
 
@@ -52,6 +56,21 @@ export default function AutopipeRunView({ id }: { id: string }) {
       </div>
 
       {run.error && <Alert kind="bad" title="Run stopped">{run.error}</Alert>}
+      {(run.status === "running" || run.status === "paused" || run.status === "queued") && (
+        <Card title="Control">
+          <div className="stack" style={{ gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {run.status === "paused" ? (
+                <button type="button" className="btn btn-sm" onClick={() => control("resume")}>Resume</button>
+              ) : (
+                <button type="button" className="btn btn-sm" onClick={() => control("pause")}>Pause after this stage</button>
+              )}
+              <button type="button" className="btn btn-sm" onClick={() => control("stop")}>Stop after this stage</button>
+            </div>
+            <div className="muted small">A running tool is not interrupted. Pause and stop take effect when the stage that is running finishes.</div>
+          </div>
+        </Card>
+      )}
 
       <Card title="Stages" pad={false}>
         {run.stages.map((s) => (

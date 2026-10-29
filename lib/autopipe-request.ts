@@ -14,6 +14,7 @@ export function parsePipelineBody(body: Record<string, unknown>): { request: Pip
     nucleiTags: Array.isArray(body.nucleiTags) ? body.nucleiTags.map(String) : [],
     urlLimit: Number(body.urlLimit) || 30,
     authorized: body.authorized === true,
+    proxyMode: (body.proxyMode as "global" | "on" | "off") ?? "global",
   };
   const problem = validatePipeline(request);
   return problem ? { error: problem } : { request };

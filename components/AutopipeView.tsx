@@ -22,6 +22,7 @@ export default function AutopipeView() {
   const [urlLimit, setUrlLimit] = useState(30);
   const [nucleiTags, setNucleiTags] = useState<string[]>([]);
   const [authorized, setAuthorized] = useState(false);
+  const [proxyMode, setProxyMode] = useState<"global" | "on" | "off">("global");
   const [plan, setPlan] = useState<PlanStep[] | null>(null);
   const [error, setError] = useState("");
   const [runs, setRuns] = useState<PipelineRecord[]>([]);
@@ -134,6 +135,22 @@ export default function AutopipeView() {
         <NucleiTagPicker selected={nucleiTags} onChange={setNucleiTags} />
       </Card>
 
+      <Card title="Burp proxy for this run">
+        <Chips
+          value={proxyMode}
+          onChange={(v) => {
+            setProxyMode(v);
+            setPlan(null);
+          }}
+          options={[
+            { value: "global", label: "Follow Settings" },
+            { value: "on", label: "Send through Burp" },
+            { value: "off", label: "Direct" },
+          ]}
+        />
+        <div className="muted small" style={{ marginTop: 8 }}>Overrides the Settings switch for this run only. Burp must be listening at the address set in Settings.</div>
+      </Card>
+
       <section className="card" style={{ padding: 16 }}>
         <label className="toggle" style={{ marginBottom: 12 }}>
           <input type="checkbox" checked={authorized} onChange={(e) => setAuthorized(e.target.checked)} />
@@ -168,7 +185,7 @@ export default function AutopipeView() {
         ) : (
           runs.map((r) => (
             <div key={r.id} className="list-item">
-              <Badge kind={r.status === "done" ? "ok" : r.status === "failed" ? "bad" : "warn"}>{r.status}</Badge>
+              <Badge kind={r.status === "done" ? "ok" : r.status === "failed" ? "bad" : r.status === "stopped" ? undefined : "warn"}>{r.status}</Badge>
               <Link className="value-link" href={`/autopipe/${r.id}`}>{r.target}</Link>
               <span className="muted small" style={{ marginLeft: "auto" }}>
                 {r.hosts.length} host(s) · {r.selected.length} selected · {r.stages.reduce((n, s) => n + s.findings.length, 0)} finding(s)

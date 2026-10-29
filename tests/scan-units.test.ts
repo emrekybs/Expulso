@@ -226,3 +226,18 @@ test("autopipeline: host selection, httpx parsing, request parsing and plan", as
   assert.equal(plan.length, 6);
   assert.match(plan.find((p) => p.stage === "nuclei (automatic)")?.note ?? "", /skipped/);
 });
+
+test("autopipeline: proxy mode validation and per-run proxy scope", async () => {
+  const c = await import("../lib/autopipe-core.ts");
+  const parse = (await import("../lib/autopipe-request.ts")).parsePipelineBody;
+  const base = { targets: ["example.com"], stages: c.ALL_STAGES_ON, statusFilter: "2xx" as const, hostLimit: 5, nucleiTags: [], urlLimit: 5, authorized: true };
+  assert.equal(c.validatePipeline({ ...base, proxyMode: "on" }), null);
+  assert.match(c.validatePipeline({ ...base, proxyMode: "maybe" as never }) ?? "", /proxy mode/);
+  const p = parse({ targets: "example.com", authorized: true, proxyMode: "off" });
+  assert.ok("request" in p && p.request.proxyMode === "off");
+  const s = await import("../lib/settings.ts");
+  const scoped = await s.proxyScope.run({ proxy: null }, async () => s.activeProxy());
+  assert.equal(scoped, null, "a run forced off sees no proxy even when the switch is on");
+  const forced = await s.proxyScope.run({ proxy: { url: "http://127.0.0.1:8080", ignoreTls: true } }, async () => s.activeProxy());
+  assert.deepEqual(forced, { url: "http://127.0.0.1:8080", ignoreTls: true });
+});
