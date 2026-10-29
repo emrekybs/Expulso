@@ -136,3 +136,27 @@ test("vuln-core: reflection context, SQL errors, redirects, cookies and headers"
   assert.deepEqual(core.missingSecurityHeaders(h, true), ["Strict-Transport-Security"]);
   assert.deepEqual(core.cookieFlagProblems(["sid=abc; Path=/; Secure; HttpOnly; SameSite=Lax", "theme=dark; Path=/"]), [{ name: "theme", missing: ["Secure", "HttpOnly", "SameSite"] }]);
 });
+
+test("xss candidates keep parameter URLs once per shape, and parse Dalfox output", async () => {
+  const d = await import("../lib/dalfox-core.ts");
+  const found = d.xssCandidates([
+    "https://a.example/search?q=1&page=2",
+    "https://a.example/search?q=other",
+    "https://a.example/logo.png?q=1",
+    "https://a.example/plain",
+    "https://a.example/item?id=5",
+    "not a url",
+  ], 10);
+  assert.deepEqual(found.map((c) => c.params), [["q", "page"], ["q"], ["id"]]);
+  assert.equal(d.xssCandidates(["https://a.example/search?q=1", "https://a.example/item?id=5"], 1).length, 1);
+  const findings = d.parseDalfoxLines([
+    "dalfox banner text",
+    JSON.stringify({ type: "V", data: "https://a.example/search?q=%3Cscript%3E", param: "q", payload: "<script>alert(1)</script>", type_description: "Verified XSS" }),
+    JSON.stringify({ type: "R", data: "https://a.example/item?id=5", param: "id", payload: "\"><x>" }),
+  ]);
+  assert.equal(findings.length, 2);
+  assert.equal(findings[0].severity, "high");
+  assert.equal(findings[0].confidence, "confirmed");
+  assert.equal(findings[1].severity, "medium");
+  assert.equal(findings[1].cwe, "CWE-79");
+});

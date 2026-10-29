@@ -48,6 +48,21 @@ function finding(kind: VulnKind, severity: Severity, where: string, evidence: st
   };
 }
 
+/** Reflection check for one parameter: one request, and a finding only when the special characters came back raw. */
+export async function reflectedXss(url: string, param: string): Promise<Finding | null> {
+  const marker = makeMarker(`${url}${param}`);
+  try {
+    const r = await safeFetch(withParam(url, param, `${marker}"'<>`), { timeoutMs: 8000, maxBytes: 300000 });
+    const ref = reflectionContext(r.body, marker);
+    if (ref.context !== "none" && ref.unencoded) {
+      return finding("xss-reflected", "high", `${url} (parameter ${param})`, `Context: ${ref.context}. Characters " ' < > came back unencoded next to the test marker.`, "suspected");
+    }
+  } catch {
+    /* unreachable: no finding */
+  }
+  return null;
+}
+
 export async function runVulnScan(t: ParsedTarget, o: VulnScanOptions): Promise<ModuleOutput<VulnScanData>> {
   const origin = t.url ? new URL(t.url).origin : `https://${t.host}`;
   const https = origin.startsWith("https:");
@@ -122,15 +137,8 @@ export async function runVulnScan(t: ParsedTarget, o: VulnScanOptions): Promise<
 
     // Reflected XSS.
     if (spend()) {
-      try {
-        const r = await safeFetch(withParam(url, param, `${marker}"'<>`), { timeoutMs: 8000, maxBytes: 300000 });
-        const ref = reflectionContext(r.body, marker);
-        if (ref.context !== "none" && ref.unencoded) {
-          findings.push(finding("xss-reflected", "high", where, `Context: ${ref.context}. Characters " ' < > came back unencoded next to the test marker.`, "suspected"));
-        }
-      } catch {
-        /* skip */
-      }
+      const f = await reflectedXss(url, param);
+      if (f) findings.push(f);
     }
 
     // Error-based SQL injection.
