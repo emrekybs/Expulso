@@ -3,16 +3,23 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { DEFAULT_SETTINGS, mergeSettings, type PanelSettings } from "./settings-core.ts";
+import { DEFAULT_SETTINGS, mergeSettings, sessionHeaders, cookiePairs, type PanelSettings } from "./settings-core.ts";
 
 // Settings are stored in data/settings.json, next to the scan results.
 export const SETTINGS_FILE = path.join(process.cwd(), "data", "settings.json");
 
+// Requests read the settings often, so the file is parsed again only when it changes.
+let cache: { mtime: number; value: PanelSettings } | null = null;
+
 export function readSettings(): PanelSettings {
   try {
+    const mtime = fs.statSync(SETTINGS_FILE).mtimeMs;
+    if (cache && cache.mtime === mtime) return cache.value;
     const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")) as unknown;
     const merged = mergeSettings(raw);
-    return "settings" in merged ? merged.settings : DEFAULT_SETTINGS;
+    const value = "settings" in merged ? merged.settings : DEFAULT_SETTINGS;
+    cache = { mtime, value };
+    return value;
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -23,6 +30,7 @@ export async function writeSettings(s: PanelSettings): Promise<void> {
   const tmp = `${SETTINGS_FILE}.${process.pid}.tmp`;
   await fsp.writeFile(tmp, JSON.stringify(s, null, 2));
   await fsp.rename(tmp, SETTINGS_FILE);
+  cache = null;
 }
 
 /** A run can override the global proxy switch for everything it starts (see the autopipeline). */
@@ -40,4 +48,18 @@ export function activeProxy(): { url: string; ignoreTls: boolean } | null {
 export function proxyAddress(): { url: string; ignoreTls: boolean } {
   const b = readSettings().burp;
   return { url: b.url, ignoreTls: b.ignoreTls };
+}
+
+/** Headers of the saved login session, or none when the session is switched off. */
+export function activeSessionHeaders(): Record<string, string> {
+  const ss = readSettings().session;
+  if (!ss.enabled) return {};
+  const r = sessionHeaders(ss);
+  return "headers" in r ? r.headers : {};
+}
+
+/** Cookies of the saved login session, for browser contexts. */
+export function activeSessionCookies(): { name: string; value: string }[] {
+  const ss = readSettings().session;
+  return ss.enabled ? cookiePairs(ss.cookie) : [];
 }

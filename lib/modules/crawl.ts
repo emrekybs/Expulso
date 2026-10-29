@@ -1,6 +1,6 @@
 import "server-only";
 import { safeFetch, UserError } from "../net.ts";
-import { activeProxy } from "../settings.ts";
+import { activeProxy, activeSessionCookies, activeSessionHeaders } from "../settings.ts";
 import type { ParsedTarget } from "../target.ts";
 import type { Finding, ModuleOutput } from "../types.ts";
 import { VULN_KB } from "../vuln-kb.ts";
@@ -61,7 +61,9 @@ async function browserPass(seed: string, host: string, pages: number, warnings: 
   }
   const found = new Set<string>();
   try {
-    const context = await browser.newContext({ ignoreHTTPSErrors: true });
+    const context = await browser.newContext({ ignoreHTTPSErrors: true, extraHTTPHeaders: activeSessionHeaders() });
+    const cookies = activeSessionCookies();
+    if (cookies.length) await context.addCookies(cookies.map((c) => ({ ...c, domain: host, path: "/" })));
     const page = await context.newPage();
     page.on("request", (req) => {
       if (sameSite(req.url(), host)) found.add(req.url().split("#")[0]);

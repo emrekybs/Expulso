@@ -277,3 +277,19 @@ test("crawl core: links, forms, same-site crawl, OpenAPI, GraphQL detection", as
   assert.equal(c.introspectionEnabled('{"data":{"__schema":{"types":[{"name":"Query"}]}}}'), true);
   assert.equal(c.introspectionEnabled('{"errors":[{"message":"introspection disabled"}]}'), false);
 });
+
+test("login session: header building, validation and cookie pairs", async () => {
+  const s = await import("../lib/settings-core.ts");
+  const ok = s.sessionHeaders({ enabled: true, cookie: "sid=abc; theme=dark", authorization: "Bearer t0k", headers: "X-Api-Key: k1\nAccept-Language: tr" });
+  assert.deepEqual("headers" in ok && ok.headers, { Cookie: "sid=abc; theme=dark", Authorization: "Bearer t0k", "X-Api-Key": "k1", "Accept-Language": "tr" });
+  assert.match((s.sessionHeaders({ enabled: true, cookie: "", authorization: "", headers: "Host: evil.example" }) as { error: string }).error, /cannot be set/);
+  assert.match((s.sessionHeaders({ enabled: true, cookie: "", authorization: "", headers: "no colon here" }) as { error: string }).error, /Name: value/);
+  assert.ok("headers" in s.sessionHeaders({ enabled: true, cookie: "", authorization: "", headers: "X-A: x" }));
+  const q = await import("../lib/sqli-core.ts");
+  const withSession = q.sqlmapArgs({ targets: [], level: 1, risk: 1, techniques: ["B"], threads: 1, limit: 1, nucleiTags: [] }, "https://a.example/x?id=1", "id", "/tmp/o", null, { Cookie: "sid=1", "X-Api-Key": "k" });
+  assert.ok(withSession.includes("--cookie") && withSession.includes("sid=1"));
+  assert.ok(withSession.includes("--headers") && withSession.some((a) => a.includes("X-Api-Key: k")));
+  const merged = s.mergeSettings({ session: { enabled: true, cookie: "a=1", headers: "Host: x" } });
+  assert.ok("error" in merged, "bad session input is refused at save time");
+  assert.deepEqual(s.cookiePairs("sid=abc; theme=dark; broken"), [{ name: "sid", value: "abc" }, { name: "theme", value: "dark" }]);
+});

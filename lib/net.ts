@@ -1,6 +1,6 @@
 import dns from "node:dns/promises";
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from "undici";
-import { activeProxy } from "./settings.ts";
+import { activeProxy, activeSessionHeaders } from "./settings.ts";
 import net from "node:net";
 
 /** An error whose message is safe and meaningful to show to the user. */
@@ -195,6 +195,7 @@ export async function safeFetch(
             "user-agent": randomUA(),
             accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
             "accept-language": "en-US,en;q=0.9,tr;q=0.8",
+            ...activeSessionHeaders(),
             ...opts.headers,
           },
         },

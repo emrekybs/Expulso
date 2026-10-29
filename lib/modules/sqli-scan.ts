@@ -9,7 +9,7 @@ import { parseSqlmapOutput, sqliCandidates, sqlmapArgs, type SqliRequest } from 
 import { discoverUrls } from "./dalfox-scan.ts";
 import { sqlErrorProbe } from "./vuln-scan.ts";
 import { nucleiTagFindings } from "./nuclei-scan.ts";
-import { activeProxy } from "../settings.ts";
+import { activeProxy, activeSessionHeaders } from "../settings.ts";
 
 // SQL injection detection. With sqlmap installed, each candidate parameter gets a detection-only sqlmap run.
 // Without it, the built-in error-based check runs. Nothing is extracted from the database.
@@ -58,7 +58,7 @@ async function runSqliEngines(req: SqliRequest, opts: { discover: boolean }): Pr
     const findings: Finding[] = [];
     const commands: string[] = [];
     for (const { url, param } of pairs) {
-      const args = sqlmapArgs(req, url, param, outDir, activeProxy()?.url ?? null);
+      const args = sqlmapArgs(req, url, param, outDir, activeProxy()?.url ?? null, activeSessionHeaders());
       commands.push(["sqlmap", ...args].join(" "));
       const r = await runTool("sqlmap", args, PER_PARAM_TIMEOUT_MS);
       if (!r.ok) {
