@@ -8,6 +8,7 @@ import type { Finding } from "../types.ts";
 import { parseDalfoxLines, xssCandidates } from "../dalfox-core.ts";
 import { runUrlArchive } from "./url-archive.ts";
 import { reflectedXss } from "./vuln-scan.ts";
+import { nucleiTagFindings } from "./nuclei-scan.ts";
 
 // XSS testing for URLs with parameters. With Dalfox installed, Dalfox does the testing. Without it, the
 // built-in reflection check runs on every candidate parameter. Domains are first expanded to their known
@@ -20,6 +21,8 @@ export interface DalfoxRequest {
   discover: boolean;
   limit: number;
   concurrency: number;
+  /** Nuclei tags run on the same candidate URLs, for example xss. */
+  nucleiTags?: string[];
 }
 
 export interface DalfoxResult {
@@ -45,7 +48,7 @@ export async function discoverUrls(domain: string, warnings: string[]): Promise<
   return archive.data.urls;
 }
 
-export async function runDalfox(req: DalfoxRequest): Promise<DalfoxResult> {
+async function runDalfoxEngines(req: DalfoxRequest): Promise<DalfoxResult> {
   const warnings: string[] = [];
   const urls: string[] = [];
   let discovered = 0;
@@ -96,4 +99,10 @@ export async function runDalfox(req: DalfoxRequest): Promise<DalfoxResult> {
     findings: results.filter((f): f is Finding => !!f),
     warnings: [...warnings, "Dalfox is not installed, so the built-in reflection check ran. Install Dalfox on the Tools page for payload testing."],
   };
+}
+
+export async function runDalfox(req: DalfoxRequest): Promise<DalfoxResult> {
+  const result = await runDalfoxEngines(req);
+  result.findings.push(...(await nucleiTagFindings(result.candidates.map((c) => c.url), req.nucleiTags ?? [], result.warnings)));
+  return result;
 }

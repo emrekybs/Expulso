@@ -1,12 +1,11 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { NUCLEI_SEVERITIES, NUCLEI_TEMPLATES, nucleiCommandPreview, type NucleiRequest } from "@/lib/nuclei-core";
+import { NUCLEI_SEVERITIES, NUCLEI_TAG_GROUPS, NUCLEI_TEMPLATES, nucleiCommandPreview, type NucleiRequest } from "@/lib/nuclei-core";
+import NucleiTagPicker from "./NucleiTagPicker";
 import type { Finding } from "@/lib/types";
 import { Alert, Card, CopyBtn, Findings } from "./ui";
 import { Icon } from "./icons";
-
-const TAG_SUGGESTIONS = ["cve", "kev", "rce", "sqli", "xss", "lfi", "ssrf", "exposure", "misconfig", "takeover", "default-login", "panel", "tech", "wordpress", "jenkins", "grafana"];
 
 interface RunOutcome {
   ok: boolean;
@@ -116,9 +115,10 @@ export default function NucleiView() {
             </div>
           </div>
           <div>
-            <div className="muted small" style={{ marginBottom: 6 }}>Tags (press Enter to add)</div>
-            <div className="chips" style={{ marginBottom: 8 }}>
-              {tags.map((t) => (
+            <div className="muted small" style={{ marginBottom: 6 }}>Tags</div>
+            <NucleiTagPicker selected={tags} onChange={setTags} />
+            <div className="chips" style={{ marginTop: 10 }}>
+              {tags.filter((t) => !NUCLEI_TAG_GROUPS.some((g) => g.tags.includes(t))).map((t) => (
                 <button key={t} type="button" className="chip on" onClick={() => setTags(tags.filter((x) => x !== t))}>{t} ×</button>
               ))}
             </div>
@@ -131,14 +131,10 @@ export default function NucleiView() {
                   addTag(tagInput);
                 }
               }}
-              placeholder="cve, kev, wordpress…"
+              placeholder="Other tag, then Enter"
               aria-label="Add tag"
+              style={{ marginTop: 8 }}
             />
-            <div className="chips" style={{ marginTop: 8 }}>
-              {TAG_SUGGESTIONS.filter((t) => !tags.includes(t)).map((t) => (
-                <button key={t} type="button" className="chip" onClick={() => addTag(t)}>+ {t}</button>
-              ))}
-            </div>
           </div>
           <div>
             <div className="muted small" style={{ marginBottom: 6 }}>Severity</div>

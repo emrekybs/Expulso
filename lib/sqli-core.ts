@@ -16,6 +16,8 @@ export interface SqliRequest {
   techniques: string[];
   threads: number;
   limit: number;
+  /** Nuclei tags run on the same candidate URLs, for example sqli. */
+  nucleiTags: string[];
 }
 
 export function validateSqli(r: SqliRequest): string | null {
@@ -25,6 +27,7 @@ export function validateSqli(r: SqliRequest): string | null {
   if (!r.techniques.length) return "Choose at least one technique.";
   if (!(r.threads >= 1 && r.threads <= 4)) return "Threads must be between 1 and 4.";
   if (!(r.limit >= 1 && r.limit <= 200)) return "Candidate limit must be between 1 and 200.";
+  if ((r.nucleiTags ?? []).some((t) => !/^[a-z0-9-]{1,40}$/.test(t))) return "Nuclei tags use lower-case letters, digits and dashes only.";
   return null;
 }
 

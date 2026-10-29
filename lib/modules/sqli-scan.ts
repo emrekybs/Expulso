@@ -8,6 +8,7 @@ import type { Finding } from "../types.ts";
 import { parseSqlmapOutput, sqliCandidates, sqlmapArgs, type SqliRequest } from "../sqli-core.ts";
 import { discoverUrls } from "./dalfox-scan.ts";
 import { sqlErrorProbe } from "./vuln-scan.ts";
+import { nucleiTagFindings } from "./nuclei-scan.ts";
 
 // SQL injection detection. With sqlmap installed, each candidate parameter gets a detection-only sqlmap run.
 // Without it, the built-in error-based check runs. Nothing is extracted from the database.
@@ -23,7 +24,7 @@ export interface SqliResult {
   command?: string;
 }
 
-export async function runSqli(req: SqliRequest, opts: { discover: boolean }): Promise<SqliResult> {
+async function runSqliEngines(req: SqliRequest, opts: { discover: boolean }): Promise<SqliResult> {
   const warnings: string[] = [];
   const urls: string[] = [];
   let discovered = 0;
@@ -83,4 +84,10 @@ export async function runSqli(req: SqliRequest, opts: { discover: boolean }): Pr
     findings: results.filter((f): f is Finding => !!f),
     warnings: [...warnings, "sqlmap is not installed, so the built-in error check ran. It finds only error-based injection. Install sqlmap on the Tools page for a deeper detection run."],
   };
+}
+
+export async function runSqli(req: SqliRequest, opts: { discover: boolean }): Promise<SqliResult> {
+  const result = await runSqliEngines(req, opts);
+  result.findings.push(...(await nucleiTagFindings(result.candidates.map((c) => c.url), req.nucleiTags ?? [], result.warnings)));
+  return result;
 }

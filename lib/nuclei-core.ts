@@ -6,6 +6,15 @@ import type { Finding, Severity } from "./types.ts";
 export const NUCLEI_SEVERITIES = ["info", "low", "medium", "high", "critical"] as const;
 export const NUCLEI_TEMPLATES = ["cves", "vulnerabilities", "exposures", "misconfigurations", "takeovers", "default-logins", "technologies", "exposed-panels"] as const;
 export const NUCLEI_TIMEOUT_MS = 30 * 60 * 1000;
+
+/** Tags grouped for the pickers. Free text tags are accepted too, if they match NUCLEI_TAG_NAME. */
+export const NUCLEI_TAG_GROUPS: { label: string; tags: string[] }[] = [
+  { label: "Injection", tags: ["sqli", "xss", "lfi", "ssrf", "ssti", "xxe", "cmdi", "crlf", "redirect"] },
+  { label: "Known vulnerabilities", tags: ["cve", "kev", "rce"] },
+  { label: "Exposure and misconfiguration", tags: ["exposure", "misconfig", "takeover", "default-login", "token", "backup", "config"] },
+  { label: "Panels and technology", tags: ["panel", "tech", "wordpress", "jenkins", "grafana", "jira", "confluence", "gitlab", "drupal", "joomla"] },
+];
+export const NUCLEI_TAG_NAME = /^[a-z0-9-]{1,40}$/;
 const TARGET_LIMIT = 200;
 
 export interface NucleiRequest {
@@ -25,6 +34,7 @@ export function validateNuclei(r: NucleiRequest): string | null {
   if (r.targets.length > TARGET_LIMIT) return `Up to ${TARGET_LIMIT} targets per run.`;
   if (r.severities.some((s) => !(NUCLEI_SEVERITIES as readonly string[]).includes(s))) return "Unknown severity.";
   if (r.templates.some((t) => !(NUCLEI_TEMPLATES as readonly string[]).includes(t))) return "Unknown template category.";
+  if ((r.tags ?? []).some((t) => !NUCLEI_TAG_NAME.test(t))) return "Tags use lower-case letters, digits and dashes only.";
   if (!r.automatic && !r.tags.length && !r.templates.length) return "Choose a template category, a tag, or turn on automatic detection.";
   if (!(r.rateLimit >= 1 && r.rateLimit <= 500)) return "Rate limit must be between 1 and 500 requests per second.";
   if (!(r.concurrency >= 1 && r.concurrency <= 100)) return "Concurrency must be between 1 and 100.";

@@ -24,6 +24,7 @@ export async function POST(req: Request) {
     techniques: Array.isArray(body.techniques) ? body.techniques.map(String) : ["B", "E", "T"],
     threads: Number(body.threads) || 1,
     limit: Number(body.limit) || 20,
+    nucleiTags: Array.isArray(body.nucleiTags) ? body.nucleiTags.map(String) : [],
   };
   const problem = validateSqli(request);
   if (problem) return NextResponse.json({ ok: false, error: problem }, { status: 400 });

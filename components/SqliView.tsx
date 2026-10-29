@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Alert, Badge, Card, CopyBtn, Findings } from "./ui";
+import NucleiTagPicker from "./NucleiTagPicker";
 import { Icon } from "./icons";
 import { SQLMAP_TECHNIQUES } from "@/lib/sqli-core";
 import type { Finding } from "@/lib/types";
@@ -30,6 +31,8 @@ export default function SqliView() {
   const [techniques, setTechniques] = useState<string[]>(["B", "E", "T"]);
   const [threads, setThreads] = useState(1);
   const [limit, setLimit] = useState(20);
+  const [nucleiTags, setNucleiTags] = useState<string[]>(["sqli"]);
+  const [withNuclei, setWithNuclei] = useState(true);
   const [authorized, setAuthorized] = useState(false);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -41,7 +44,7 @@ export default function SqliView() {
       const res = await fetch("/api/sqli", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ targets, discover, level, risk, techniques, threads, limit, authorized }),
+        body: JSON.stringify({ nucleiTags: withNuclei ? nucleiTags : [], targets, discover, level, risk, techniques, threads, limit, authorized }),
       });
       setOutcome((await res.json()) as Outcome);
     } catch {
@@ -111,6 +114,18 @@ export default function SqliView() {
             </div>
           </div>
           {risk >= 2 || level >= 4 ? <Alert kind="warn">Higher level and risk send more payloads. Risk 3 can change data on the target.</Alert> : null}
+        </div>
+      </Card>
+
+      <Card title="Nuclei templates on the same URLs">
+        <div className="stack" style={{ gap: 12 }}>
+          <label className="toggle">
+            <input type="checkbox" checked={withNuclei} onChange={(e) => setWithNuclei(e.target.checked)} />
+            <span className="track" />
+            Also run nuclei with these tags on the candidate URLs
+          </label>
+          {withNuclei && <NucleiTagPicker selected={nucleiTags} onChange={setNucleiTags} />}
+          <div className="muted small">Uses the installed nuclei. Tags are the same as on the Nuclei page.</div>
         </div>
       </Card>
 

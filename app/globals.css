@@ -427,6 +427,12 @@ select {
 button.chip {
   cursor: pointer;
 }
+button.chip.on {
+  background: var(--info-bg);
+  color: var(--info);
+  border-color: var(--info);
+}
+
 button.chip:hover {
   border-color: var(--border-strong);
   color: var(--text);

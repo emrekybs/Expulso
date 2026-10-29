@@ -1,9 +1,9 @@
 import "server-only";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { runTool } from "../tools.ts";
+import { runTool, toolPath } from "../tools.ts";
 import type { Finding } from "../types.ts";
-import { buildNucleiArgs, nucleiCommandPreview, parseNucleiJsonl, NUCLEI_TIMEOUT_MS, type NucleiRequest } from "../nuclei-core.ts";
+import { buildNucleiArgs, nucleiCommandPreview, parseNucleiJsonl, NUCLEI_SEVERITIES, NUCLEI_TIMEOUT_MS, type NucleiRequest } from "../nuclei-core.ts";
 
 // Runs the installed nuclei with the templates, tags and severities chosen on the Nuclei page.
 // nuclei sends requests to the target, so runs need the user's confirmation that they are authorised.
@@ -32,4 +32,30 @@ export async function runNuclei(r: NucleiRequest): Promise<NucleiRunResult> {
   } finally {
     await fs.rm(listFile, { force: true });
   }
+}
+
+/**
+ * Runs nuclei with the given tags on candidate URLs, for the SQL and XSS pages. Returns no findings and a
+ * warning when nuclei is missing or fails, so the page still shows its own results.
+ */
+export async function nucleiTagFindings(urls: string[], tags: string[], warnings: string[]): Promise<Finding[]> {
+  if (!tags.length || !urls.length) return [];
+  if (!(await toolPath("nuclei"))) {
+    warnings.push("nuclei is not installed, so its templates for the selected tags did not run. Install it on the Tools page.");
+    return [];
+  }
+  const r = await runNuclei({
+    targets: [...new Set(urls)].slice(0, 200),
+    severities: [...NUCLEI_SEVERITIES],
+    tags,
+    templates: [],
+    automatic: false,
+    rateLimit: 50,
+    concurrency: 10,
+  });
+  if (!r.ok) {
+    warnings.push(`nuclei (${tags.join(", ")}): ${r.error ?? "failed."}`);
+    return [];
+  }
+  return r.findings;
 }

@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Alert, Badge, Card, CopyBtn, Findings } from "./ui";
+import NucleiTagPicker from "./NucleiTagPicker";
 import { Icon } from "./icons";
 import type { Finding } from "@/lib/types";
 
@@ -24,6 +25,8 @@ export default function DalfoxView() {
   const [discover, setDiscover] = useState(true);
   const [limit, setLimit] = useState(50);
   const [concurrency, setConcurrency] = useState(5);
+  const [nucleiTags, setNucleiTags] = useState<string[]>(["xss"]);
+  const [withNuclei, setWithNuclei] = useState(true);
   const [authorized, setAuthorized] = useState(false);
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
@@ -35,7 +38,7 @@ export default function DalfoxView() {
       const res = await fetch("/api/dalfox", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ targets, discover, limit, concurrency, authorized }),
+        body: JSON.stringify({ nucleiTags: withNuclei ? nucleiTags : [], targets, discover, limit, concurrency, authorized }),
       });
       setOutcome((await res.json()) as Outcome);
     } catch {
@@ -83,6 +86,18 @@ export default function DalfoxView() {
             <span className="muted small">Parallel workers</span>
             <input type="number" min={1} max={20} value={concurrency} onChange={(e) => setConcurrency(Number(e.target.value) || 1)} />
           </label>
+        </div>
+      </Card>
+
+      <Card title="Nuclei templates on the same URLs">
+        <div className="stack" style={{ gap: 12 }}>
+          <label className="toggle">
+            <input type="checkbox" checked={withNuclei} onChange={(e) => setWithNuclei(e.target.checked)} />
+            <span className="track" />
+            Also run nuclei with these tags on the candidate URLs
+          </label>
+          {withNuclei && <NucleiTagPicker selected={nucleiTags} onChange={setNucleiTags} />}
+          <div className="muted small">Uses the installed nuclei. Tags are the same as on the Nuclei page.</div>
         </div>
       </Card>
 

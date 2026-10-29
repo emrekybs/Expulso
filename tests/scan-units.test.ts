@@ -164,7 +164,7 @@ test("xss candidates keep parameter URLs once per shape, and parse Dalfox output
 test("sqli: candidates, safe sqlmap arguments, validation and output parsing", async () => {
   const q = await import("../lib/sqli-core.ts");
   assert.deepEqual(q.sqliCandidates(["https://a.example/item?id=5&lang=en", "https://a.example/logo.png?id=1", "https://a.example/x?q=1"], 10).map((c) => c.params), [["id", "lang"]]);
-  const req = { targets: ["https://a.example/item?id=5"], level: 2, risk: 1, techniques: ["B", "T"], threads: 1, limit: 10 };
+  const req = { targets: ["https://a.example/item?id=5"], level: 2, risk: 1, techniques: ["B", "T"], threads: 1, limit: 10, nucleiTags: [] };
   assert.equal(q.validateSqli(req), null);
   assert.match(q.validateSqli({ ...req, risk: 5 }) ?? "", /Risk/);
   assert.match(q.validateSqli({ ...req, techniques: ["X"] }) ?? "", /technique/);
@@ -184,4 +184,14 @@ test("sqli: candidates, safe sqlmap arguments, validation and output parsing", a
   assert.equal(findings[0].confidence, "confirmed");
   assert.match(findings[0].detail, /MySQL/);
   assert.match(findings[0].title, /parameter id/);
+});
+
+test("nuclei tags: grouped catalogue includes SQLi and XSS, free tags are validated", async () => {
+  const n = await import("../lib/nuclei-core.ts");
+  const all = n.NUCLEI_TAG_GROUPS.flatMap((g) => g.tags);
+  assert.ok(all.includes("sqli") && all.includes("xss"));
+  assert.ok(all.every((t) => n.NUCLEI_TAG_NAME.test(t)));
+  const base = { targets: ["https://a.example"], severities: ["high"], tags: ["sqli"], templates: [], automatic: false, rateLimit: 50, concurrency: 10 };
+  assert.equal(n.validateNuclei(base), null);
+  assert.match(n.validateNuclei({ ...base, tags: ["SQL Inj!"] }) ?? "", /Tags use/);
 });

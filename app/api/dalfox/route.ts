@@ -21,6 +21,7 @@ export async function POST(req: Request) {
     discover: body.discover !== false,
     limit: Number(body.limit) || 50,
     concurrency: Number(body.concurrency) || 5,
+    nucleiTags: Array.isArray(body.nucleiTags) ? body.nucleiTags.map(String) : [],
   });
   return NextResponse.json({ ok: true, ...result });
 }
