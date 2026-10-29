@@ -29,6 +29,7 @@ import { runPortScan } from "./modules/port-scan.ts";
 import { runUrlArchive } from "./modules/url-archive.ts";
 import { runCloudBuckets } from "./modules/cloud-buckets.ts";
 import { runAsnRanges } from "./modules/asn-ranges.ts";
+import { runVulnScan } from "./modules/vuln-scan.ts";
 
 type Opts = Record<string, unknown>;
 
@@ -81,6 +82,7 @@ const RUNNERS: Record<ModuleId, (t: ParsedTarget, o: Opts) => Promise<ModuleOutp
   "url-archive": (t) => runUrlArchive(t),
   "cloud-buckets": (t) => runCloudBuckets(t),
   "asn-ranges": (t) => runAsnRanges(t),
+  "vuln-scan": (t, o) => runVulnScan(t, { urls: String(o.urls ?? ""), maxRequests: Number(o.maxRequests) || 200 }),
 };
 
 export interface RunResult {

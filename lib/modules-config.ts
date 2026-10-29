@@ -28,11 +28,12 @@ export type ModuleId =
   | "ports-scan"
   | "url-archive"
   | "cloud-buckets"
-  | "asn-ranges";
+  | "asn-ranges"
+  | "vuln-scan";
 
 /** passive: nothing is sent to the target. light: a few normal page loads. active: many requests to the target. */
 export type Tier = "passive" | "light" | "active";
-export type Group = "Recon" | "OSINT" | "Active";
+export type Group = "Recon" | "OSINT" | "Active" | "Vulnerability";
 
 export interface OptionDef {
   key: string;
@@ -383,6 +384,21 @@ export const MODULES: ModuleDef[] = [
     fullScanOptions: { preset: "common", speed: "normal", banners: true, nmap: true },
   },
   {
+    id: "vuln-scan",
+    title: "Web Vulnerabilities",
+    group: "Vulnerability",
+    tier: "active",
+    description: "Built-in checks that send test requests: reflected XSS, error-based SQL injection, CRLF injection, open redirect, CORS, security headers and cookie flags. Detection only, with a request budget. Each finding explains what it is, why it matters, its impact and how to fix it.",
+    accepts: NAMES,
+    sources: ["Target website (test requests)"],
+    bulkLimit: 5,
+    options: [
+      { key: "urls", label: "URLs with parameters (one per line, optional)", type: "text", default: "" },
+      { key: "maxRequests", label: "Request budget", type: "number", default: 200, min: 10, max: 1000 },
+    ],
+    fullScanOptions: { maxRequests: 150 },
+  },
+  {
     id: "url-archive",
     title: "Archived URLs",
     group: "OSINT",
@@ -414,7 +430,7 @@ export const MODULES: ModuleDef[] = [
   },
 ];
 
-export const GROUPS: Group[] = ["Recon", "OSINT", "Active"];
+export const GROUPS: Group[] = ["Recon", "OSINT", "Active", "Vulnerability"];
 
 export function getModule(id: string): ModuleDef | undefined {
   return MODULES.find((m) => m.id === id);

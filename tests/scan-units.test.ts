@@ -117,3 +117,22 @@ test("parseNmapGreppable reads open ports and versions from nmap -oG output", ()
     { port: 80, service: "http", version: "nginx 1.18.0" },
   ]);
 });
+
+test("vuln-core: reflection context, SQL errors, redirects, cookies and headers", async () => {
+  const core = await import("../lib/modules/vuln-core.ts");
+  const m = core.makeMarker("https://x.test/?q=1");
+  assert.match(m, /^b24x[a-z0-9]+$/i);
+  assert.deepEqual(core.reflectionContext(`<p>${m}"'<></p>`, m), { context: "html-text", unencoded: true });
+  assert.deepEqual(core.reflectionContext(`<input value="${m}&quot;&#39;&lt;&gt;">`, m), { context: "attribute", unencoded: false });
+  assert.equal(core.reflectionContext(`<script>var a="${m}"'<></script>`, m).context, "script");
+  assert.equal(core.reflectionContext("nothing here", m).context, "none");
+  assert.match(core.sqlErrorSignature("You have an error in your SQL syntax; check the manual") ?? "", /SQL syntax/);
+  assert.equal(core.sqlErrorSignature("<html>hello</html>"), null);
+  assert.equal(core.isRedirectParam("next"), true);
+  assert.equal(core.isRedirectParam("id"), false);
+  assert.deepEqual(core.queryParams("https://a.test/x?id=1&page=2&id=3"), ["id", "page"]);
+  assert.equal(core.withParam("https://a.test/x?id=1", "id", "'"), "https://a.test/x?id=%27");
+  const h = new Headers({ "content-security-policy": "default-src 'self'; frame-ancestors 'none'", "x-content-type-options": "nosniff" });
+  assert.deepEqual(core.missingSecurityHeaders(h, true), ["Strict-Transport-Security"]);
+  assert.deepEqual(core.cookieFlagProblems(["sid=abc; Path=/; Secure; HttpOnly; SameSite=Lax", "theme=dark; Path=/"]), [{ name: "theme", missing: ["Secure", "HttpOnly", "SameSite"] }]);
+});

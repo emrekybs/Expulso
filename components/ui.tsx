@@ -70,12 +70,28 @@ export function Findings({ items }: { items: Finding[] }) {
         <div key={i} className="check-row" style={{ gridTemplateColumns: "84px minmax(0,1fr)" }}>
           <SeverityBadge s={f.severity} />
           <div>
-            <div className="cr-title">{f.title}</div>
+            <div className="cr-title">
+              {f.title}{" "}
+              {f.confidence && <Badge kind={f.confidence === "confirmed" ? "ok" : "info"}>{f.confidence}</Badge>}{" "}
+              {f.cwe && <Badge>{f.cwe}</Badge>}
+            </div>
             <div className="cr-detail">{f.detail}</div>
+            {f.impact && (
+              <div className="cr-detail" style={{ marginTop: 4 }}>
+                <b>Impact:</b> {f.impact}
+              </div>
+            )}
             {f.evidence && <div className="cr-value" style={{ whiteSpace: "pre-line" }}>{f.evidence}</div>}
             {f.recommendation && (
               <div className="cr-rec">
-                <b>Recommendation:</b> {f.recommendation}
+                <b>Fix:</b> {f.recommendation}
+              </div>
+            )}
+            {f.references && f.references.length > 0 && (
+              <div className="muted small" style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 10 }}>
+                {f.references.map((r) => (
+                  <a key={r} className="value-link" href={r} target="_blank" rel="noreferrer noopener">{new URL(r).hostname}</a>
+                ))}
               </div>
             )}
           </div>

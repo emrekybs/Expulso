@@ -9,6 +9,13 @@ export interface Finding {
   detail: string;
   evidence?: string;
   recommendation?: string;
+  /** Knowledge-base kind (see lib/vuln-kb.ts) for vulnerability findings. */
+  kind?: string;
+  impact?: string;
+  cwe?: string;
+  references?: string[];
+  /** confirmed: the effect was observed. suspected: a strong signal that needs manual review. */
+  confidence?: "confirmed" | "suspected";
 }
 
 export interface SourceStatus {
