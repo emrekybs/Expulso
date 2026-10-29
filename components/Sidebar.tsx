@@ -110,6 +110,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
           ))}
           <div className="nav-group">
             <Item href="/tools" icon={Icon.tools({ size: 18 })} label="Tools" />
+            <Item href="/settings" icon={Icon.overview({ size: 18 })} label="Settings" />
             <Item href="/logs" icon={Icon.logs({ size: 18 })} label="Logs" />
           </div>
         </nav>

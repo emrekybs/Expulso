@@ -8,6 +8,7 @@ import type { Finding } from "../types.ts";
 import { parseDalfoxLines, xssCandidates } from "../dalfox-core.ts";
 import { runUrlArchive } from "./url-archive.ts";
 import { reflectedXss } from "./vuln-scan.ts";
+import { activeProxy } from "../settings.ts";
 import { nucleiTagFindings } from "./nuclei-scan.ts";
 
 // XSS testing for URLs with parameters. With Dalfox installed, Dalfox does the testing. Without it, the
@@ -80,7 +81,8 @@ async function runDalfoxEngines(req: DalfoxRequest): Promise<DalfoxResult> {
     const list = path.join(dir, `dalfox-${Date.now().toString(36)}.txt`);
     await fs.writeFile(list, candidates.map((c) => c.url).join("\n"));
     try {
-      const args = ["file", list, "--silence", "--format", "json", "--worker", String(req.concurrency)];
+      const proxy = activeProxy();
+      const args = ["file", list, "--silence", "--format", "json", "--worker", String(req.concurrency), ...(proxy ? ["--proxy", proxy.url] : [])];
       const r = await runTool("dalfox", args, DALFOX_TIMEOUT_MS);
       const command = ["dalfox", ...args].join(" ");
       if (!r.ok) return { engine, discovered, candidates, findings: [], warnings: [...warnings, r.error ?? "Dalfox failed."], command };

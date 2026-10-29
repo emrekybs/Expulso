@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import net from "node:net";
 import { UserError, mapLimit } from "./net.ts";
+import { activeProxy } from "./settings.ts";
 
 export const SHOT_DIR = path.join(process.cwd(), "data", "screenshots");
 
@@ -32,9 +33,11 @@ export async function captureScreenshots(targets: { host: string; scheme: "https
   await fs.mkdir(SHOT_DIR, { recursive: true });
   let browser;
   try {
+    const proxy = activeProxy();
     browser = await pw.chromium.launch({
       executablePath: process.env.CHROMIUM_PATH || undefined,
       args: process.env.CHROMIUM_NO_SANDBOX === "1" ? ["--no-sandbox"] : [],
+      proxy: proxy ? { server: proxy.url } : undefined,
     });
   } catch (e) {
     throw new UserError(`Chromium could not start. Run: npx playwright install chromium (${(e as Error).message.split("\n")[0]})`, "tool_missing");

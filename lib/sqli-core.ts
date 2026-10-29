@@ -58,7 +58,7 @@ export function sqliCandidates(urls: string[], limit: number): { url: string; pa
  * The sqlmap arguments for one URL and parameter. Detection only: no --dump, --os-shell, --sql-shell or
  * file access flags are ever added. --batch means nothing waits for input.
  */
-export function sqlmapArgs(r: SqliRequest, url: string, param: string, outDir: string): string[] {
+export function sqlmapArgs(r: SqliRequest, url: string, param: string, outDir: string, proxy?: string | null): string[] {
   return [
     "-u", url,
     "-p", param,
@@ -73,6 +73,7 @@ export function sqlmapArgs(r: SqliRequest, url: string, param: string, outDir: s
     "--flush-session",
     "--disable-coloring",
     "--output-dir", outDir,
+    ...(proxy ? ["--proxy", proxy] : []),
   ];
 }
 

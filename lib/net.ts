@@ -1,4 +1,6 @@
 import dns from "node:dns/promises";
+import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from "undici";
+import { activeProxy } from "./settings.ts";
 import net from "node:net";
 
 /** An error whose message is safe and meaningful to show to the user. */
@@ -72,10 +74,31 @@ export async function assertPublicHost(host: string): Promise<string[]> {
   return addrs;
 }
 
-export async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = 15000): Promise<Response> {
+// One agent per proxy setting, reused across requests.
+const agents = new Map<string, Dispatcher>();
+function proxyAgent(url: string, ignoreTls: boolean): Dispatcher {
+  const key = `${url}|${ignoreTls}`;
+  let agent = agents.get(key);
+  if (!agent) {
+    agent = new ProxyAgent({ uri: url, requestTls: { rejectUnauthorized: !ignoreTls } });
+    agents.set(key, agent);
+  }
+  return agent;
+}
+
+/**
+ * Fetch with a timeout. viaProxy sends the request through the Burp (or other) proxy from the settings,
+ * when that proxy is switched on. Only target-facing requests use it; third-party APIs always go direct.
+ */
+export async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = 15000, viaProxy = false): Promise<Response> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), ms);
+  const proxy = viaProxy ? activeProxy() : null;
   try {
+    if (proxy) {
+      const res = await undiciFetch(url, { ...(init as object), signal: ctrl.signal, cache: "no-store", dispatcher: proxyAgent(proxy.url, proxy.ignoreTls) } as Parameters<typeof undiciFetch>[1]);
+      return res as unknown as Response;
+    }
     return await fetch(url, { ...init, signal: ctrl.signal, cache: "no-store" });
   } catch (e) {
     if ((e as Error).name === "AbortError") throw new UserError(`Request timed out after ${Math.round(ms / 1000)} s.`, "timeout");
@@ -175,6 +198,7 @@ export async function safeFetch(
           },
         },
         timeoutMs,
+        true,
       );
     } catch (e) {
       if (e instanceof UserError) throw e;

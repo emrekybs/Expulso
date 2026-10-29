@@ -2,6 +2,7 @@ import "server-only";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { runTool, toolPath } from "../tools.ts";
+import { activeProxy } from "../settings.ts";
 import type { Finding } from "../types.ts";
 import { buildNucleiArgs, nucleiCommandPreview, parseNucleiJsonl, NUCLEI_SEVERITIES, NUCLEI_TIMEOUT_MS, type NucleiRequest } from "../nuclei-core.ts";
 
@@ -25,7 +26,10 @@ export async function runNuclei(r: NucleiRequest): Promise<NucleiRunResult> {
   const listFile = path.join(dir, `nuclei-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.txt`);
   await fs.writeFile(listFile, r.targets.join("\n"));
   try {
-    const res = await runTool("nuclei", buildNucleiArgs(r, listFile), NUCLEI_TIMEOUT_MS);
+    const proxy = activeProxy();
+    const args = buildNucleiArgs(r, listFile);
+    if (proxy) args.push("-proxy", proxy.url);
+    const res = await runTool("nuclei", args, NUCLEI_TIMEOUT_MS);
     if (!res.ok) return { ok: false, command, findings: [], rawCount: 0, error: res.error };
     const findings = parseNucleiJsonl(res.lines);
     return { ok: true, command, findings, rawCount: res.lines.length };

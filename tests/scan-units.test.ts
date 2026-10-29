@@ -195,3 +195,13 @@ test("nuclei tags: grouped catalogue includes SQLi and XSS, free tags are valida
   assert.equal(n.validateNuclei(base), null);
   assert.match(n.validateNuclei({ ...base, tags: ["SQL Inj!"] }) ?? "", /Tags use/);
 });
+
+test("settings: proxy URL validation and merge with defaults", async () => {
+  const s = await import("../lib/settings-core.ts");
+  assert.deepEqual(s.validateProxyUrl("http://127.0.0.1:8080/"), { url: "http://127.0.0.1:8080" });
+  assert.match((s.validateProxyUrl("socks5://127.0.0.1:1080") as { error: string }).error, /http/);
+  assert.match((s.validateProxyUrl("http://127.0.0.1") as { error: string }).error, /port/);
+  assert.match((s.validateProxyUrl("not a url") as { error: string }).error, /full address/);
+  const merged = s.mergeSettings({ burp: { enabled: true } });
+  assert.deepEqual("settings" in merged && merged.settings.burp, { enabled: true, url: "http://127.0.0.1:8080", ignoreTls: true });
+});
