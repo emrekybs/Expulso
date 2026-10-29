@@ -8,6 +8,7 @@ import { parseTarget } from "./target.ts";
 import type { Finding } from "./types.ts";
 import { runSubdomains } from "./modules/subdomains.ts";
 import { discoverUrls } from "./modules/dalfox-scan.ts";
+import { crawlUrlsFor } from "./modules/crawl.ts";
 import { runDalfox } from "./modules/dalfox-scan.ts";
 import { runSqli } from "./modules/sqli-scan.ts";
 import { runNuclei } from "./modules/nuclei-scan.ts";
@@ -225,8 +226,9 @@ async function runDomain(rec: PipelineRecord) {
     }
     s.engine = (await toolPath("gau")) ? "gau" : "built-in archives";
     for (const h of selected) {
-      const urls = await discoverUrls(h.host, s.warnings);
-      urlsPerHost.set(h.host, urls);
+      const archived = await discoverUrls(h.host, s.warnings);
+      const crawled = await crawlUrlsFor(h.host, 10);
+      urlsPerHost.set(h.host, [...archived, ...crawled]);
     }
     const all = [...urlsPerHost.values()].flat();
     rec.candidates = {

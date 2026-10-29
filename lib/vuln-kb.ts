@@ -1,7 +1,7 @@
 // Built-in knowledge base for vulnerability findings. Plain text written by us, so every finding has the
 // same explanation, impact and fix without any external service.
 
-export type VulnKind = "xss-reflected" | "sqli-error" | "crlf-injection" | "open-redirect" | "cors-misconfig" | "missing-headers" | "cookie-flags" | "exposed-file" | "cloud-bucket";
+export type VulnKind = "xss-reflected" | "sqli-error" | "crlf-injection" | "open-redirect" | "cors-misconfig" | "missing-headers" | "cookie-flags" | "exposed-file" | "cloud-bucket" | "api-docs-exposed" | "graphql-introspection";
 
 export interface VulnInfo {
   title: string;
@@ -96,5 +96,23 @@ export const VULN_KB: Record<VulnKind, VulnInfo> = {
     fix: "Disable public listing and public read access. Grant access only to specific identities, and review the listed objects.",
     cwe: "CWE-284",
     references: ["https://docs.aws.amazon.com/AmazonS3/latest/userguide/access-control-block-public-access.html"],
+  },
+  "api-docs-exposed": {
+    title: "API documentation is publicly reachable",
+    what: "The OpenAPI or Swagger document that describes the API is served without authentication.",
+    why: "A documentation path returned a valid OpenAPI document. It lists endpoints, parameters and sometimes example data.",
+    impact: "Attackers get a map of every endpoint, including internal or admin ones, which makes targeted testing much easier.",
+    fix: "Serve API documentation only in development, or behind authentication. Remove internal and admin endpoints from the public document.",
+    cwe: "CWE-200",
+    references: ["https://owasp.org/www-project-api-security/"],
+  },
+  "graphql-introspection": {
+    title: "GraphQL introspection is enabled",
+    what: "The GraphQL endpoint returns its full schema to anyone who asks for it.",
+    why: "An introspection query returned the schema types of the GraphQL API.",
+    impact: "The full list of queries, mutations and types is exposed, which reveals hidden operations and internal data models.",
+    fix: "Disable introspection in production. Require authentication for schema queries, and review which types are exposed.",
+    cwe: "CWE-200",
+    references: ["https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html"],
   },
 };

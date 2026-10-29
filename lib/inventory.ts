@@ -177,6 +177,11 @@ export function buildInventory(modules: InvModule[], children: InvChild[] = []):
       }
     }
 
+    if (m.id === "crawl") {
+      for (const e of arr(get(d, "endpoints"))) inv.api.push({ label: `${str(get(e, "method"))} ${str(get(e, "path"))}`, detail: "documented API endpoint", source: src, url: str(get(e, "url")) });
+      for (const u of ((get(d, "urls") as string[] | undefined) ?? []).filter((x) => x.includes("?")).slice(0, 200)) inv.path.push({ label: u, detail: "crawled URL with parameters", source: src, url: u });
+    }
+
     if (m.id === "asn-ranges") {
       for (const a of arr(get(d, "asns"))) {
         const v4 = Number(get(a, "ipv4Prefixes")) || 0;

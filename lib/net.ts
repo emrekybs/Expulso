@@ -173,7 +173,7 @@ const NET_ERRORS: Record<string, string> = {
 /** Fetch for user-supplied targets: every hop is checked against private address ranges. */
 export async function safeFetch(
   url: string,
-  opts: { timeoutMs?: number; maxBytes?: number; maxRedirects?: number; followRedirects?: boolean; method?: string; headers?: Record<string, string> } = {},
+  opts: { timeoutMs?: number; maxBytes?: number; maxRedirects?: number; followRedirects?: boolean; method?: string; headers?: Record<string, string>; body?: string } = {},
 ): Promise<SafeResponse> {
   const { timeoutMs = 15000, maxBytes = 2_000_000, maxRedirects = 5, followRedirects = true, method = "GET" } = opts;
   const redirects: { url: string; status: number }[] = [];
@@ -189,6 +189,7 @@ export async function safeFetch(
         current,
         {
           method,
+          ...(opts.body !== undefined ? { body: opts.body } : {}),
           redirect: "manual",
           headers: {
             "user-agent": randomUA(),

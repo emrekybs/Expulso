@@ -241,3 +241,39 @@ test("autopipeline: proxy mode validation and per-run proxy scope", async () => 
   const forced = await s.proxyScope.run({ proxy: { url: "http://127.0.0.1:8080", ignoreTls: true } }, async () => s.activeProxy());
   assert.deepEqual(forced, { url: "http://127.0.0.1:8080", ignoreTls: true });
 });
+
+test("crawl core: links, forms, same-site crawl, OpenAPI, GraphQL detection", async () => {
+  const c = await import("../lib/crawl-core.ts");
+  const html = `<html><body><a href="/about">About</a><a href="https://other.example/x">ext</a><a href="#top">top</a>
+    <a href="javascript:void(0)">js</a><script src="/static/app.js"></script>
+    <form action="/search" method="get"><input name="q"><input name="page"></form></body></html>`;
+  const found = c.extractLinks(html, "https://app.example.com/");
+  assert.ok(found.links.includes("https://app.example.com/about"));
+  assert.ok(found.links.includes("https://other.example/x"));
+  assert.ok(found.links.includes("https://app.example.com/search?q=test&page=test"));
+  assert.equal(found.forms[0].method, "GET");
+  assert.deepEqual(found.forms[0].fields, ["q", "page"]);
+  assert.equal(c.sameSite("https://a.app.example.com/x", "app.example.com"), true);
+  assert.equal(c.sameSite("https://evil.example/x", "app.example.com"), false);
+
+  const pages: Record<string, string> = {
+    "https://app.example.com/": '<a href="/a">a</a><a href="/b">b</a><a href="/logo.png">img</a>',
+    "https://app.example.com/a": '<a href="/c?id=1">c</a>',
+    "https://app.example.com/b": '<a href="https://other.example/">x</a>',
+    "https://app.example.com/c?id=1": "<p>end</p>",
+  };
+  const graph = await c.crawlGraph("https://app.example.com/", "app.example.com", 10, async (u) => (pages[u] ? { html: pages[u], url: u } : null));
+  assert.deepEqual(graph.visited.sort(), ["https://app.example.com/", "https://app.example.com/a", "https://app.example.com/b", "https://app.example.com/c?id=1"].sort());
+  assert.ok(graph.urls.includes("https://app.example.com/c?id=1"));
+  const limited = await c.crawlGraph("https://app.example.com/", "app.example.com", 2, async (u) => (pages[u] ? { html: pages[u], url: u } : null));
+  assert.equal(limited.visited.length, 2);
+
+  const eps = c.parseOpenApi({ openapi: "3.0.0", paths: { "/users/{id}": { get: { parameters: [{ in: "query", name: "expand" }, { in: "path", name: "id" }] }, delete: {} } } });
+  assert.deepEqual(eps, [{ method: "GET", path: "/users/{id}", queryParams: ["expand"] }, { method: "DELETE", path: "/users/{id}", queryParams: [] }]);
+  assert.equal(c.isOpenApiDocument({ swagger: "2.0", paths: {} }), true);
+  assert.equal(c.isOpenApiDocument({ hello: 1 }), false);
+  assert.equal(c.looksLikeGraphql('{"data":{"__typename":"Query"}}'), true);
+  assert.equal(c.looksLikeGraphql("<html>not graphql</html>"), false);
+  assert.equal(c.introspectionEnabled('{"data":{"__schema":{"types":[{"name":"Query"}]}}}'), true);
+  assert.equal(c.introspectionEnabled('{"errors":[{"message":"introspection disabled"}]}'), false);
+});

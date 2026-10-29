@@ -28,7 +28,8 @@ export type ModuleId =
   | "url-archive"
   | "cloud-buckets"
   | "asn-ranges"
-  | "vuln-scan";
+  | "vuln-scan"
+  | "crawl";
 
 /** passive: nothing is sent to the target. light: a few normal page loads. active: many requests to the target. */
 export type Tier = "passive" | "light" | "active";
@@ -386,6 +387,20 @@ export const MODULES: ModuleDef[] = [
       { key: "maxRequests", label: "Request budget", type: "number", default: 200, min: 10, max: 1000 },
     ],
     fullScanOptions: { maxRequests: 150 },
+  },
+  {
+    id: "crawl",
+    title: "Crawler & API Discovery",
+    group: "Recon",
+    tier: "light",
+    description: "Follows links, forms and scripts within the site, finds OpenAPI and Swagger documents and GraphQL endpoints (checking whether introspection is open), and lists every URL with parameters. Optional headless-browser pass for pages built with JavaScript.",
+    accepts: NAMES,
+    sources: ["Target website", "Headless Chromium (optional)"],
+    bulkLimit: 10,
+    options: [
+      { key: "pages", label: "Pages to crawl", type: "number", default: 15, min: 1, max: 50 },
+      { key: "browser", label: "Browser pass for JavaScript pages (needs Chromium)", type: "boolean", default: false },
+    ],
   },
   {
     id: "url-archive",
