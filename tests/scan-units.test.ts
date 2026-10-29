@@ -293,3 +293,28 @@ test("login session: header building, validation and cookie pairs", async () => 
   assert.ok("error" in merged, "bad session input is refused at save time");
   assert.deepEqual(s.cookiePairs("sid=abc; theme=dark; broken"), [{ name: "sid", value: "abc" }, { name: "theme", value: "dark" }]);
 });
+
+test("report: impact, CWE, confidence, references and chained hosts are written", async () => {
+  const { buildHtmlReport } = await import("../lib/client/report.ts");
+  const html = buildHtmlReport(
+    [
+      {
+        target: "example.com",
+        res: {
+          ok: true,
+          counts: { high: 1, medium: 0, low: 0, info: 0 },
+          findings: [{ severity: "high", title: "SQL injection", detail: "d", impact: "Data read", cwe: "CWE-89", confidence: "confirmed", references: ["https://owasp.org/x", "not a url"], module: "SQL Injection" }],
+          modules: [],
+          children: [{ host: "app.example.com", ips: ["203.0.113.5"], modules: [{ id: "http", title: "HTTP", tier: "light", ok: true, summary: "", findings: [], data: {}, warnings: [], sources: [], durationMs: 1 }] }],
+        },
+      },
+    ],
+    "full",
+  );
+  assert.match(html, /Impact:<\/b> Data read/);
+  assert.match(html, /CWE-89/);
+  assert.match(html, /confirmed/);
+  assert.match(html, /https:\/\/owasp\.org\/x/);
+  assert.match(html, /Chained subdomains/);
+  assert.match(html, /app\.example\.com/);
+});

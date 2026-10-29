@@ -41,6 +41,14 @@ export function Stat({ label, value, sub, accent }: { label: string; value: Reac
   );
 }
 
+function safeHost(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url.slice(0, 40);
+  }
+}
+
 export function Findings({ items }: { items: Finding[] }) {
   if (!items.length)
     return (
@@ -90,7 +98,7 @@ export function Findings({ items }: { items: Finding[] }) {
             {f.references && f.references.length > 0 && (
               <div className="muted small" style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 10 }}>
                 {f.references.map((r) => (
-                  <a key={r} className="value-link" href={r} target="_blank" rel="noreferrer noopener">{new URL(r).hostname}</a>
+                  <a key={r} className="value-link" href={r} target="_blank" rel="noreferrer noopener">{safeHost(r)}</a>
                 ))}
               </div>
             )}

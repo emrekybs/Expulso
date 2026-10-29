@@ -24,8 +24,11 @@ export function buildHtmlReport(results: { target: string; res: FullScanResponse
         <div>
           <div class="ft">${esc(f.title)}</div>
           <div class="fd">${esc(f.detail)}</div>
+          ${f.impact ? `<div class="fd"><b>Impact:</b> ${esc(f.impact)}</div>` : ""}
+          <div class="fm">${[f.confidence, f.cwe].filter(Boolean).map((x) => esc(x)).join(" · ")}</div>
+          ${f.references?.length ? `<div class="fm">${f.references.map((r) => `<a href="${esc(r)}">${esc(r)}</a>`).join("<br>")}</div>` : ""}
           ${f.evidence ? `<pre>${esc(f.evidence)}</pre>` : ""}
-          ${f.recommendation ? `<div class="fr"><b>Recommendation:</b> ${esc(f.recommendation)}</div>` : ""}
+          ${f.recommendation ? `<div class="fr"><b>Fix:</b> ${esc(f.recommendation)}</div>` : ""}
           <div class="fm">${esc(f.module)}</div>
         </div>
       </div>`,
@@ -47,6 +50,7 @@ export function buildHtmlReport(results: { target: string; res: FullScanResponse
         <span style="color:${SEV_COLOR.info}">${c.info} Info</span>
       </div>
       ${findings ? `<h3>Findings</h3>${findings}` : "<p class='muted'>No notable findings.</p>"}
+      ${(r.res.children ?? []).length ? `<h3>Chained subdomains</h3><table><thead><tr><th>Host</th><th>Addresses</th><th>Modules</th></tr></thead><tbody>${(r.res.children ?? []).map((c) => `<tr><td>${esc(c.host)}</td><td>${esc(c.ips.join(", ") || "—")}</td><td>${c.modules.filter((m) => m.ok).length}/${c.modules.length} ok</td></tr>`).join("")}</tbody></table>` : ""}
       <h3>Modules</h3>
       <table><thead><tr><th>Module</th><th>Tier</th><th>Summary</th><th>Time</th></tr></thead><tbody>${mods}</tbody></table>
     </section>`;
