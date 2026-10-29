@@ -102,6 +102,7 @@ export default function Sidebar({ open, onClose }: { open: boolean; onClose: () 
               {g === "Vulnerability" && (
                 <>
                   <Item href="/dalfox" icon={Icon.search({ size: 18 })} label="Dalfox (XSS)" />
+                  <Item href="/sqli" icon={Icon.search({ size: 18 })} label="SQL Injection" />
                   <Item href="/nuclei" icon={Icon.search({ size: 18 })} label="Nuclei" />
                 </>
               )}

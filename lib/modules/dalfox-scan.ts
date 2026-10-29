@@ -31,7 +31,8 @@ export interface DalfoxResult {
   command?: string;
 }
 
-async function discoverUrls(domain: string, warnings: string[]): Promise<string[]> {
+/** Known URLs of a domain: gau when installed, otherwise the built-in archives. Shared with the SQL page. */
+export async function discoverUrls(domain: string, warnings: string[]): Promise<string[]> {
   if (await toolPath("gau")) {
     const r = await runTool("gau", ["--subs", "--threads", "5", domain], 300000);
     if (r.ok) return r.lines;

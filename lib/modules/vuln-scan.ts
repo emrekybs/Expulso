@@ -63,6 +63,21 @@ export async function reflectedXss(url: string, param: string): Promise<Finding 
   return null;
 }
 
+/** Error-based SQL check for one parameter: a baseline, then a single quote. A finding needs a new database error. */
+export async function sqlErrorProbe(url: string, param: string): Promise<Finding | null> {
+  try {
+    const baseline = (await safeFetch(url, { timeoutMs: 8000, maxBytes: 300000 })).body;
+    const r = await safeFetch(withParam(url, param, "'"), { timeoutMs: 8000, maxBytes: 300000 });
+    const err = sqlErrorSignature(r.body);
+    if (err && !sqlErrorSignature(baseline)) {
+      return finding("sqli-error", "high", `${url} (parameter ${param})`, `Database error after a single quote: "${err}"`, "suspected");
+    }
+  } catch {
+    /* unreachable: no finding */
+  }
+  return null;
+}
+
 export async function runVulnScan(t: ParsedTarget, o: VulnScanOptions): Promise<ModuleOutput<VulnScanData>> {
   const origin = t.url ? new URL(t.url).origin : `https://${t.host}`;
   const https = origin.startsWith("https:");

@@ -160,3 +160,28 @@ test("xss candidates keep parameter URLs once per shape, and parse Dalfox output
   assert.equal(findings[1].severity, "medium");
   assert.equal(findings[1].cwe, "CWE-79");
 });
+
+test("sqli: candidates, safe sqlmap arguments, validation and output parsing", async () => {
+  const q = await import("../lib/sqli-core.ts");
+  assert.deepEqual(q.sqliCandidates(["https://a.example/item?id=5&lang=en", "https://a.example/logo.png?id=1", "https://a.example/x?q=1"], 10).map((c) => c.params), [["id", "lang"]]);
+  const req = { targets: ["https://a.example/item?id=5"], level: 2, risk: 1, techniques: ["B", "T"], threads: 1, limit: 10 };
+  assert.equal(q.validateSqli(req), null);
+  assert.match(q.validateSqli({ ...req, risk: 5 }) ?? "", /Risk/);
+  assert.match(q.validateSqli({ ...req, techniques: ["X"] }) ?? "", /technique/);
+  const args = q.sqlmapArgs(req, "https://a.example/item?id=5", "id", "/tmp/out");
+  for (const forbidden of ["--dump", "--os-shell", "--sql-shell", "--file-read", "--file-write", "--passwords", "--current-user"]) assert.ok(!args.includes(forbidden));
+  assert.ok(args.includes("--batch") && args.includes("--output-dir"));
+  const findings = q.parseSqlmapOutput([
+    "[INFO] testing connection",
+    "sqlmap identified the following injection point(s) with a total of 46 HTTP(s) requests:",
+    "Parameter: id (GET)",
+    "    Type: boolean-based blind",
+    "    Title: AND boolean-based blind - WHERE or HAVING clause",
+    "    Payload: id=5 AND 1234=1234",
+    "[INFO] the back-end DBMS is MySQL",
+  ], "https://a.example/item?id=5");
+  assert.equal(findings.length, 1);
+  assert.equal(findings[0].confidence, "confirmed");
+  assert.match(findings[0].detail, /MySQL/);
+  assert.match(findings[0].title, /parameter id/);
+});
